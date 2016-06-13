@@ -1,0 +1,10 @@
+[package]
+name = "signify-rs"
+version = "0.1.0"
+authors = ["Jan-Erik Rediger <janerik@fnordig.de>"]
+
+[dependencies]
+byteorder = "0.5.3"
+rust-crypto = "0.2.36"
+base64 = "0.2.0"
+rand = "0.3.14"
