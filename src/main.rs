@@ -136,10 +136,6 @@ impl PublicKey {
             publkey: publkey,
         })
     }
-
-    fn verify(&self, msg: &[u8], signature: &Signature) -> bool {
-        ed25519::verify(msg, &self.publkey, &signature.sig)
-    }
 }
 
 impl PrivateKey {
