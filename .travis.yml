@@ -24,8 +24,6 @@ script:
       travis-cargo test &&
       travis-cargo --only stable doc
   - ./tests/full-cycle.sh
-after_success:
-  - travis-cargo coveralls --no-sudo
 
 env:
   global:
