@@ -1,7 +1,22 @@
 [package]
-name = "signify-rs"
+name = "signify"
 version = "0.1.0"
 authors = ["Jan-Erik Rediger <janerik@fnordig.de>"]
+
+readme = "README.md"
+license = "MIT"
+
+homepage = "https://github.com/badboy/signify-rs"
+repository = "https://github.com/badboy/signify-rs"
+
+include = [
+  "Cargo.toml",
+  "README*",
+  "LICENSE*",
+  "src/**/*",
+  "tests/**/*",
+  "examples/**/*",
+]
 
 [dependencies]
 byteorder = "0.5.3"
