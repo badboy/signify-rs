@@ -3,6 +3,9 @@ name = "signify"
 version = "0.1.0"
 authors = ["Jan-Erik Rediger <janerik@fnordig.de>"]
 
+keywords = [ "cryptography", "security" ]
+description = "Create cryptographic signatures for files and verify them"
+
 readme = "README.md"
 license = "MIT"
 
