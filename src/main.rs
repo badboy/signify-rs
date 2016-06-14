@@ -276,7 +276,7 @@ fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<FileContent, io::Error> {
 
     let base64_line = &base64_line[0..len-1];
 
-    let data = match base64::decode(&base64_line) {
+    let data = match base64::decode(base64_line) {
         Ok(data) => data,
         Err(e) => {
             println!("invalid base64 encoding in {}: {:?}", file_display, e);
