@@ -5,14 +5,17 @@ extern crate rand;
 extern crate docopt;
 extern crate rustc_serialize;
 
-use std::io::{self, Write};
+use std::process;
+use std::mem;
+use std::io::prelude::*;
+use std::io::{self, BufReader, Cursor};
 use std::fs::File;
 use std::convert::AsRef;
 use std::path::Path;
 use rand::Rng;
 use rand::os::OsRng;
 use crypto::ed25519;
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use docopt::Docopt;
 
 const KEYNUMLEN : usize = 8;
@@ -22,6 +25,11 @@ const SIGBYTES : usize = 64;
 
 const PKGALG : [u8; 2] = *b"Ed";
 const KDFALG : [u8; 2] = *b"BK";
+
+const COMMENTHDR : &'static str = "untrusted comment: ";
+const COMMENTHDRLEN : usize = 19;
+const COMMENTMAXLEN : usize = 1024;
+const VERIFYWITH : &'static str = "verify with ";
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const USAGE: &'static str = "
@@ -53,6 +61,12 @@ struct Args {
     flag_p: String,
     flag_s: String,
     flag_m: String,
+}
+
+enum FileContent {
+    PublicKey(PublicKey),
+    PrivateKey(PrivateKey),
+    Signature(Signature),
 }
 
 
@@ -95,6 +109,26 @@ impl PublicKey {
         Ok(())
     }
 
+    fn from_buf(buf: &[u8]) -> Result<PublicKey, io::Error> {
+        assert!(buf.len() >= mem::size_of::<Self>());
+
+        let mut buf = Cursor::new(buf);
+
+        let mut pkgalg = [0; 2];
+        let mut keynum = [0; KEYNUMLEN];
+        let mut publkey = [0; PUBLICBYTES];
+
+        try!(buf.read(&mut pkgalg));
+        try!(buf.read(&mut keynum));
+        try!(buf.read(&mut publkey));
+
+        Ok(PublicKey {
+            pkgalg: pkgalg,
+            keynum: keynum,
+            publkey: publkey,
+        })
+    }
+
     fn verify(&self, msg: &[u8], signature: &Signature) -> bool {
         ed25519::verify(msg, &self.publkey, &signature.sig)
     }
@@ -111,6 +145,38 @@ impl PrivateKey {
         try!(w.write(&self.seckey));
 
         Ok(())
+    }
+
+    fn from_buf(buf: &[u8]) -> Result<PrivateKey, io::Error> {
+        assert!(buf.len() >= mem::size_of::<Self>());
+
+        let mut buf = Cursor::new(buf);
+
+        let mut pkgalg = [0; 2];
+        let mut kdfalg = [0; 2];
+        let mut kdfrounds = 0;
+        let mut salt = [0; 16];
+        let mut checksum = [0; 8];
+        let mut keynum = [0; KEYNUMLEN];
+        let mut seckey = [0; SECRETBYTES];
+
+        try!(buf.read(&mut pkgalg));
+        try!(buf.read(&mut kdfalg));
+        kdfrounds = try!(buf.read_u32::<BigEndian>());
+        try!(buf.read(&mut salt));
+        try!(buf.read(&mut checksum));
+        try!(buf.read(&mut keynum));
+        try!(buf.read(&mut seckey));
+
+        Ok(PrivateKey {
+            pkgalg: pkgalg,
+            kdfalg: kdfalg,
+            kdfrounds: kdfrounds,
+            salt: salt,
+            checksum: checksum,
+            keynum: keynum,
+            seckey: seckey,
+        })
     }
 
     fn sign(&self, msg: &[u8]) -> Signature {
@@ -132,6 +198,26 @@ impl Signature {
         Ok(())
     }
 
+    fn from_buf(buf: &[u8]) -> Result<Signature, io::Error> {
+        assert!(buf.len() >= mem::size_of::<Self>());
+
+        let mut buf = Cursor::new(buf);
+
+        let mut pkgalg = [0; 2];
+        let mut keynum = [0; KEYNUMLEN];
+        let mut sig = [0; SIGBYTES];
+
+        try!(buf.read(&mut pkgalg));
+        try!(buf.read(&mut keynum));
+        try!(buf.read(&mut sig));
+
+        Ok(Signature {
+            pkgalg: pkgalg,
+            keynum: keynum,
+            sig: sig,
+        })
+    }
+
     fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
         ed25519::verify(msg, &pkey.publkey, &self.sig)
     }
@@ -140,7 +226,7 @@ impl Signature {
 fn write_base64_file<P: AsRef<Path>>(file: P, comment: &str, buf: &[u8]) -> Result<(), io::Error> {
     let mut f = File::create(file).unwrap();
 
-    try!(write!(f, "untrusted comment: "));
+    try!(write!(f, "{}", COMMENTHDR));
     try!(write!(f, "{}\n", comment));
     let out = base64::encode(buf);
     try!(write!(f, "{}\n", out));
@@ -148,7 +234,111 @@ fn write_base64_file<P: AsRef<Path>>(file: P, comment: &str, buf: &[u8]) -> Resu
     Ok(())
 }
 
+fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<FileContent, io::Error> {
+    let file_display = format!("{}", file.as_ref().display());
+    let mut f = try!(File::open(file));
+    let mut reader = BufReader::new(f);
+
+    let mut comment_line = String::new();
+    let len = try!(reader.read_line(&mut comment_line));
+
+    if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
+        println!("invalid comment in {}; must start with '{}'", file_display, COMMENTHDR);
+        process::exit(1);
+    }
+
+    if &comment_line[len-1..len] != "\n" {
+        println!("missing new line after comment in '{}'", file_display);
+        process::exit(1);
+    }
+
+    if len > COMMENTHDRLEN + COMMENTMAXLEN {
+        println!("comment too long");
+        process::exit(1);
+    }
+
+    let mut base64_line = String::new();
+    let len = try!(reader.read_line(&mut base64_line));
+
+    if len == 0 {
+        println!("missing line in {}", file_display);
+        process::exit(1);
+    }
+
+    if &base64_line[len-1..len] != "\n" {
+        println!("missing new line after comment in '{}'", file_display);
+        process::exit(1);
+    }
+
+    let base64_line = &base64_line[0..len-1];
+
+    let data = match base64::decode(&base64_line) {
+        Ok(data) => data,
+        Err(e) => {
+            println!("invalid base64 encoding in {}: {:?}", file_display, e);
+            process::exit(1);
+        }
+    };
+
+    if &data[0..2] != PKGALG {
+        println!("unsupported file {}", file_display);
+        process::exit(1);
+    }
+
+    match data.len() {
+        x if x == mem::size_of::<PublicKey>() => {
+            return PublicKey::from_buf(&data)
+                .map(FileContent::PublicKey);
+        },
+        x if x == mem::size_of::<PrivateKey>() => {
+            return PrivateKey::from_buf(&data)
+                .map(FileContent::PrivateKey);
+        },
+        x if x == mem::size_of::<Signature>() => {
+            return Signature::from_buf(&data)
+                .map(FileContent::Signature);
+        },
+        x => {
+            println!("unsupported file {}", file_display);
+            process::exit(1);
+        },
+    };
+
+    Err(io::Error::from_raw_os_error(2))
+}
+
 fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>) {
+    let pkey = match read_base64_file(&pubkey_path) {
+        Ok(FileContent::PublicKey(pkey)) => pkey,
+        _ => {
+            println!("an error occured.");
+            process::exit(2);
+        }
+    };
+
+    let signature_path = match signature_path {
+        Some(path) => path,
+        None => format!("{}.sig", msg_path)
+    };
+
+    let signature = match read_base64_file(&signature_path) {
+        Ok(FileContent::Signature(sig)) => sig,
+        _ => {
+            println!("Can't read signature from '{}'", signature_path);
+            process::exit(2);
+        }
+    };
+
+    let mut msgfile = File::open(&msg_path).expect(&format!("Can't open message file '{}'", msg_path));
+    let mut msg = vec![];
+    msgfile.read_to_end(&mut msg).expect(&format!("Can't read file '{}'", msg_path));
+
+    if signature.verify(&msg, &pkey) {
+        println!("Signature Verified");
+    } else {
+        println!("signature verification failed");
+        process::exit(1);
+    }
 }
 
 fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>) {
