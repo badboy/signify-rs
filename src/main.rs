@@ -12,11 +12,18 @@ use std::io::{self, BufReader, Cursor};
 use std::fs::File;
 use std::convert::AsRef;
 use std::path::Path;
+
 use rand::Rng;
 use rand::os::OsRng;
+
 use crypto::ed25519;
+use crypto::digest::Digest;
+use crypto::sha2::Sha512;
+
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+
 use docopt::Docopt;
+
 
 const KEYNUMLEN : usize = 8;
 const PUBLICBYTES : usize = 32;
@@ -342,24 +349,55 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
 }
 
 fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>) {
-    let mut keynum = [0; KEYNUMLEN];
-
-    let mut rng = OsRng::new().expect("Can't create random number generator");
-    rng.fill_bytes(&mut keynum);
-
-    let (skey, pkey) = ed25519::keypair(&[]);
-    let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
-
-    let mut out = vec![];
-    public_key.write(&mut out);
-
     let comment = match comment {
         Some(s) => s,
         None    => "signify".into()
     };
 
-    let comment = format!("{} public key", comment);
-    write_base64_file(&pubkey_path, &comment, &out).unwrap()
+    let mut keynum = [0; KEYNUMLEN];
+
+    let mut rng = OsRng::new().expect("Can't create random number generator");
+    rng.fill_bytes(&mut keynum);
+
+    let mut seed = [0; 32];
+    rng.fill_bytes(&mut seed);
+    let (skey, pkey) = ed25519::keypair(&seed);
+
+    // Store private key
+    let mut ctx = Sha512::new();
+    ctx.input(&skey);
+    let mut digest = [0; 64];
+    ctx.result(&mut digest);
+    let mut checksum = [0; 8];
+    checksum.copy_from_slice(&digest[0..8]);
+
+    let mut salt = [0; 16];
+    rng.fill_bytes(&mut salt);
+
+    let private_key = PrivateKey {
+        pkgalg: PKGALG,
+        kdfalg: KDFALG,
+        kdfrounds: 0,
+        salt: salt,
+        checksum: checksum,
+        keynum: keynum,
+        seckey: skey,
+    };
+
+    let mut out = vec![];
+    private_key.write(&mut out);
+
+    let priv_comment = format!("{} secret key", comment);
+    write_base64_file(&privkey_path, &priv_comment, &out).unwrap();
+
+    // Store public key
+    let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
+
+    let mut out = vec![];
+    public_key.write(&mut out);
+
+    let pub_comment = format!("{} public key", comment);
+    write_base64_file(&pubkey_path, &pub_comment, &out).unwrap();
 }
 
 fn main() {
