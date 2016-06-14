@@ -43,6 +43,7 @@ signify-rs
 Usage:
   signify -h
   signify -G [-c <comment>] -p <pubkey> -s <seckey>
+  signify -S [-x <sigfile>] -s <seckey> -m <message>
   signify -V [-x <sigfile>] -p <pubkey> -m <message>
 
 Options:
@@ -58,8 +59,9 @@ Options:
 #[allow(non_snake_case)]
 #[derive(Debug, RustcDecodable)]
 struct Args {
-    flag_V: bool,
     flag_G: bool,
+    flag_S: bool,
+    flag_V: bool,
 
     flag_x: Option<String>,
     flag_c: Option<String>,
@@ -345,6 +347,33 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
     }
 }
 
+fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) {
+    let skey = match read_base64_file(&seckey_path) {
+        Ok(FileContent::PrivateKey(skey)) => skey,
+        _ => {
+            println!("an error occured.");
+            process::exit(2);
+        }
+    };
+
+    let mut msgfile = File::open(&msg_path).expect(&format!("Can't open message file '{}'", msg_path));
+    let mut msg = vec![];
+    msgfile.read_to_end(&mut msg).expect(&format!("Can't read file '{}'", msg_path));
+
+    let signature_path = match signature_path {
+        Some(path) => path,
+        None => format!("{}.sig", msg_path)
+    };
+
+    let sig = skey.sign(&msg);
+
+    let mut out = vec![];
+    sig.write(&mut out).expect("Can't write to internal buffer");
+
+    let sig_comment = "signature from signify secret key";
+    write_base64_file(&signature_path, sig_comment, &out).unwrap();
+}
+
 fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>) {
     let comment = match comment {
         Some(s) => s,
@@ -406,5 +435,7 @@ fn main() {
         verify(args.flag_p, args.flag_m, args.flag_x);
     } else if args.flag_G {
         generate(args.flag_p, args.flag_s, args.flag_c);
+    } else if args.flag_S {
+        sign(args.flag_s, args.flag_m, args.flag_x);
     }
 }
