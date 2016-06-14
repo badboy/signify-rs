@@ -36,9 +36,7 @@ const KDFALG : [u8; 2] = *b"BK";
 const COMMENTHDR : &'static str = "untrusted comment: ";
 const COMMENTHDRLEN : usize = 19;
 const COMMENTMAXLEN : usize = 1024;
-const VERIFYWITH : &'static str = "verify with ";
 
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const USAGE: &'static str = "
 signify-rs
 
@@ -57,6 +55,7 @@ Options:
   -x <sigfile>  The signature file to create or verify.  The default is <message>.sig.
 ";
 
+#[allow(non_snake_case)]
 #[derive(Debug, RustcDecodable)]
 struct Args {
     flag_V: bool,
@@ -161,7 +160,7 @@ impl PrivateKey {
 
         let mut pkgalg = [0; 2];
         let mut kdfalg = [0; 2];
-        let mut kdfrounds = 0;
+        let kdfrounds;
         let mut salt = [0; 16];
         let mut checksum = [0; 8];
         let mut keynum = [0; KEYNUMLEN];
@@ -243,7 +242,7 @@ fn write_base64_file<P: AsRef<Path>>(file: P, comment: &str, buf: &[u8]) -> Resu
 
 fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<FileContent, io::Error> {
     let file_display = format!("{}", file.as_ref().display());
-    let mut f = try!(File::open(file));
+    let f = try!(File::open(file));
     let mut reader = BufReader::new(f);
 
     let mut comment_line = String::new();
@@ -305,13 +304,11 @@ fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<FileContent, io::Error> {
             return Signature::from_buf(&data)
                 .map(FileContent::Signature);
         },
-        x => {
+        _ => {
             println!("unsupported file {}", file_display);
             process::exit(1);
         },
     };
-
-    Err(io::Error::from_raw_os_error(2))
 }
 
 fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>) {
@@ -385,7 +382,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>) 
     };
 
     let mut out = vec![];
-    private_key.write(&mut out);
+    private_key.write(&mut out).expect("Can't write to internal buffer");
 
     let priv_comment = format!("{} secret key", comment);
     write_base64_file(&privkey_path, &priv_comment, &out).unwrap();
@@ -394,7 +391,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>) 
     let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
 
     let mut out = vec![];
-    public_key.write(&mut out);
+    public_key.write(&mut out).expect("Can't write to internal buffer");
 
     let pub_comment = format!("{} public key", comment);
     write_base64_file(&pubkey_path, &pub_comment, &out).unwrap();
