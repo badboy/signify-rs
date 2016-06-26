@@ -1,4 +1,4 @@
-# Signify - ED25519 signature tool
+# Signify - Ed25519 signature tool
 
 [![crates.io](http://meritbadge.herokuapp.com/signify)](https://crates.io/crates/signify)
 [![Build Status](https://travis-ci.org/badboy/signify-rs.svg?branch=master)](https://travis-ci.org/badboy/signify-rs)
