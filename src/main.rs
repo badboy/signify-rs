@@ -4,11 +4,13 @@ extern crate byteorder;
 extern crate rand;
 extern crate docopt;
 extern crate rustc_serialize;
+extern crate rpassword;
 
 use std::process;
 use std::mem;
 use std::io::prelude::*;
 use std::io::{self, BufReader, Cursor};
+use std::io::Result as IoResult;
 use std::fs::File;
 use std::convert::AsRef;
 use std::path::Path;
@@ -19,6 +21,7 @@ use rand::os::OsRng;
 use crypto::ed25519;
 use crypto::digest::Digest;
 use crypto::sha2::Sha512;
+use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -42,7 +45,7 @@ signify-rs
 
 Usage:
   signify -h
-  signify -G [-c <comment>] -p <pubkey> -s <seckey>
+  signify -G [-n] [-c <comment>] -p <pubkey> -s <seckey>
   signify -S [-x <sigfile>] -s <seckey> -m <message>
   signify -V [-x <sigfile>] -p <pubkey> -m <message>
 
@@ -51,6 +54,8 @@ Options:
   -c <comment>  Specify the comment to be added during key generation.
   -m <message>  When signing, the file containing the message to sign.  When verifying, the file containing the
                 message to verify.  When verifying with -e, the file to create.
+  -n            Do not ask for a passphrase during key generation. Otherwise, signify will prompt the user for a
+                passphrase to protect the secret key.
   -p <pubkey>   Public key produced by -G, and used by -V to check a signature.
   -s <seckey>   Secret (private) key produced by -G, and used by -S to sign a message.
   -x <sigfile>  The signature file to create or verify.  The default is <message>.sig.
@@ -69,6 +74,7 @@ struct Args {
     flag_p: String,
     flag_s: String,
     flag_m: String,
+    flag_n: bool,
 }
 
 enum FileContent {
@@ -344,13 +350,21 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
 }
 
 fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) {
-    let skey = match read_base64_file(&seckey_path) {
+    let mut skey = match read_base64_file(&seckey_path) {
         Ok(FileContent::PrivateKey(skey)) => skey,
         _ => {
             println!("an error occured.");
             process::exit(2);
         }
     };
+
+    let rounds = skey.kdfrounds;
+    let xorkey = kdf(&skey.salt, rounds, false, SECRETBYTES);
+
+    for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
+        *prv = *prv ^ xor;
+    }
+    let skey = skey;
 
     let mut msgfile = File::open(&msg_path).expect(&format!("Can't open message file '{}'", msg_path));
     let mut msg = vec![];
@@ -370,7 +384,36 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) {
     write_base64_file(&signature_path, sig_comment, &out).unwrap();
 }
 
-fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>) {
+fn read_password(prompt: &str) -> IoResult<String> {
+    let mut stdout = std::io::stdout();
+    stdout.write_all(prompt.as_bytes()).expect("Write to stdout failed");
+    stdout.flush().expect("Flushing stdout failed");
+
+    rpassword::read_password()
+}
+
+fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Vec<u8> {
+    let mut result = vec![0; keylen];
+    if rounds == 0 {
+        return result;
+    }
+
+    let passphrase = read_password("passphrase: ").expect("unable to read passphrase");
+
+    if confirm {
+        let confirm_passphrase = read_password("confirm passphrase: ").expect("unable to read passphrase");
+
+        if passphrase != confirm_passphrase {
+            println!("passwords don't match");
+            process::exit(1);
+        }
+    }
+
+    bcrypt_pbkdf(passphrase.as_bytes(), salt, rounds, &mut result);
+    result
+}
+
+fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, kdfrounds: u32) {
     let comment = match comment {
         Some(s) => s,
         None    => "signify".into()
@@ -383,7 +426,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>) 
 
     let mut seed = [0; 32];
     rng.fill_bytes(&mut seed);
-    let (skey, pkey) = ed25519::keypair(&seed);
+    let (mut skey, pkey) = ed25519::keypair(&seed);
 
     // Store private key
     let mut ctx = Sha512::new();
@@ -396,10 +439,16 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>) 
     let mut salt = [0; 16];
     rng.fill_bytes(&mut salt);
 
+    let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES);
+
+    for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
+        *prv = *prv ^ xor;
+    }
+
     let private_key = PrivateKey {
         pkgalg: PKGALG,
         kdfalg: KDFALG,
-        kdfrounds: 0,
+        kdfrounds: kdfrounds,
         salt: salt,
         checksum: checksum,
         keynum: keynum,
@@ -430,7 +479,8 @@ fn main() {
     if args.flag_V {
         verify(args.flag_p, args.flag_m, args.flag_x);
     } else if args.flag_G {
-        generate(args.flag_p, args.flag_s, args.flag_c);
+        let rounds = if args.flag_n { 0 } else { 42 };
+        generate(args.flag_p, args.flag_s, args.flag_c, rounds);
     } else if args.flag_S {
         sign(args.flag_s, args.flag_m, args.flag_x);
     }
