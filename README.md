@@ -36,7 +36,7 @@ signify -V -p pubkey -m README.md
 ## Limitations
 
 * No embedded signatures
-* No password-protection for secret keys
+* ~~No password-protection for secret keys~~
 
 Both things will be implemented eventually.
 I also accept PRs.
