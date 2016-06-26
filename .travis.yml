@@ -7,6 +7,10 @@ addons:
       - libelf-dev
       - libdw-dev
 
+os:
+  - linux
+  - osx
+
 # run builds for both all the trains
 rust:
   - stable
