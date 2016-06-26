@@ -350,13 +350,21 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
 }
 
 fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) {
-    let skey = match read_base64_file(&seckey_path) {
+    let mut skey = match read_base64_file(&seckey_path) {
         Ok(FileContent::PrivateKey(skey)) => skey,
         _ => {
             println!("an error occured.");
             process::exit(2);
         }
     };
+
+    let rounds = skey.kdfrounds;
+    let xorkey = kdf(&skey.salt, rounds, false, SECRETBYTES);
+
+    for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
+        *prv = *prv ^ xor;
+    }
+    let skey = skey;
 
     let mut msgfile = File::open(&msg_path).expect(&format!("Can't open message file '{}'", msg_path));
     let mut msg = vec![];
