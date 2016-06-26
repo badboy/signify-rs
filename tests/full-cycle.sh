@@ -15,7 +15,7 @@ cleanup() {
 
 trap cleanup SIGHUP SIGINT SIGTERM EXIT
 
-cargo run -- -G -p $PUB -s $PRIV
+cargo run -- -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
 cargo run -- -S -s $PRIV -m $MSG -x ${MSG}.sig
 cargo run -- -V -p $PUB -m $MSG -x ${MSG}.sig
