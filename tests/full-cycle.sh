@@ -3,6 +3,9 @@
 set -e
 
 SCRIPTPATH=$(readlink -f $(dirname $0))
+pushd $(dirname $0) > /dev/null
+SCRIPTPATH=$(pwd)
+popd > /dev/null
 cd $SCRIPTPATH
 
 PUB=$(mktemp pub.$$.XXXXXXXXXX)
