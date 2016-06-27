@@ -7,9 +7,9 @@ SCRIPTPATH=$(pwd)
 popd > /dev/null
 cd $SCRIPTPATH
 
-PUB=$(mktemp pub.$$.XXXXXXXXXX)
-PRIV=$(mktemp priv.$$.XXXXXXXXXX)
-MSG=$(mktemp msg.$$.XXXXXXXXXX)
+PUB=$(mktemp -u pub.$$.XXXXXXXXXX)
+PRIV=$(mktemp -u priv.$$.XXXXXXXXXX)
+MSG=$(mktemp -u msg.$$.XXXXXXXXXX)
 
 cleanup() {
   rm $PUB $PRIV $MSG $MSG.sig
