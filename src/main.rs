@@ -11,7 +11,7 @@ use std::mem;
 use std::io::prelude::*;
 use std::io::{self, BufReader, Cursor};
 use std::io::Result as IoResult;
-use std::fs::File;
+use std::fs::{OpenOptions, File};
 use std::convert::AsRef;
 use std::path::Path;
 
@@ -233,8 +233,22 @@ impl Signature {
     }
 }
 
+fn human<P: AsRef<Path>>(file: P, result: Result<(), io::Error>) {
+    use std::io::ErrorKind::*;
+    let file = file.as_ref();
+
+    if let Err(e) = result {
+        match e.kind() {
+            AlreadyExists => println!("can't open '{}' for writing. File exists", file.display()),
+            k @ _ => println!("can't open '{}' 'for writing: {:?}", file.display(), k),
+        }
+
+        process::exit(1);
+    }
+}
+
 fn write_base64_file<P: AsRef<Path>>(file: P, comment: &str, buf: &[u8]) -> Result<(), io::Error> {
-    let mut f = File::create(file).unwrap();
+    let mut f = try!(OpenOptions::new().write(true).create_new(true).open(file));
 
     try!(write!(f, "{}", COMMENTHDR));
     try!(write!(f, "{}\n", comment));
@@ -381,7 +395,7 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) {
     sig.write(&mut out).expect("Can't write to internal buffer");
 
     let sig_comment = "signature from signify secret key";
-    write_base64_file(&signature_path, sig_comment, &out).unwrap();
+    human(&signature_path, write_base64_file(&signature_path, sig_comment, &out));
 }
 
 fn read_password(prompt: &str) -> IoResult<String> {
@@ -459,7 +473,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     private_key.write(&mut out).expect("Can't write to internal buffer");
 
     let priv_comment = format!("{} secret key", comment);
-    write_base64_file(&privkey_path, &priv_comment, &out).unwrap();
+    human(&privkey_path, write_base64_file(&privkey_path, &priv_comment, &out));
 
     // Store public key
     let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
@@ -468,7 +482,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     public_key.write(&mut out).expect("Can't write to internal buffer");
 
     let pub_comment = format!("{} public key", comment);
-    write_base64_file(&pubkey_path, &pub_comment, &out).unwrap();
+    human(&pubkey_path, write_base64_file(&pubkey_path, &pub_comment, &out));
 }
 
 fn main() {
