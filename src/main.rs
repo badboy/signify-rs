@@ -5,6 +5,8 @@ extern crate rand;
 extern crate docopt;
 extern crate rustc_serialize;
 extern crate rpassword;
+extern crate ring;
+extern crate untrusted;
 
 use std::process;
 use std::mem;
@@ -22,6 +24,8 @@ use crypto::ed25519;
 use crypto::digest::Digest;
 use crypto::sha2::Sha512;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
+
+use ring::signature;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -229,7 +233,12 @@ impl Signature {
     }
 
     fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        ed25519::verify(msg, &pkey.publkey, &self.sig)
+        let public_key = untrusted::Input::from(&pkey.publkey);
+        let sig = untrusted::Input::from(&self.sig);
+        let msg = untrusted::Input::from(msg);
+
+        signature::verify(&signature::ED25519,
+                          public_key, msg, sig).is_ok()
     }
 }
 
