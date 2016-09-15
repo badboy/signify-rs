@@ -1,7 +1,6 @@
 extern crate crypto;
 extern crate base64;
 extern crate byteorder;
-extern crate rand;
 extern crate docopt;
 extern crate rustc_serialize;
 extern crate rpassword;
@@ -16,9 +15,6 @@ use std::io::Result as IoResult;
 use std::fs::File;
 use std::convert::AsRef;
 use std::path::Path;
-
-use rand::Rng;
-use rand::os::OsRng;
 
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
 
@@ -431,9 +427,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     };
 
     let mut keynum = [0; KEYNUMLEN];
-
-    let mut rng = OsRng::new().expect("Can't create random number generator");
-    rng.fill_bytes(&mut keynum);
+    SystemRandom.fill(&mut keynum).expect("Can't fill keynum randomly");
 
     let (_, keypair_bytes) = Ed25519KeyPair::generate_serializable(&SystemRandom).expect("Can't generate key pair");
     let mut skey = keypair_bytes.private_key;
@@ -445,7 +439,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     checksum.copy_from_slice(&digest.as_ref()[0..8]);
 
     let mut salt = [0; 16];
-    rng.fill_bytes(&mut salt);
+    SystemRandom.fill(&mut salt).expect("Can't fill salt randomly");
 
     let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES);
 
