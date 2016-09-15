@@ -437,11 +437,6 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let mut skey = keypair_bytes.private_key;
     let pkey = keypair_bytes.public_key;
 
-    // Store private key
-    let digest = digest::digest(&digest::SHA512, &skey);
-    let mut checksum = [0; 8];
-    checksum.copy_from_slice(&digest.as_ref()[0..8]);
-
     let mut salt = [0; 16];
     SystemRandom.fill(&mut salt).expect("Can't fill salt randomly");
 
@@ -454,6 +449,12 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let mut sskey = [0; 64];
     sskey[0..32].copy_from_slice(&skey[0..32]);
     sskey[32..].copy_from_slice(&pkey);
+
+    // Store private key
+    let digest = digest::digest(&digest::SHA512, &sskey);
+    let mut checksum = [0; 8];
+    checksum.copy_from_slice(&digest.as_ref()[0..8]);
+
     let private_key = PrivateKey {
         pkgalg: PKGALG,
         kdfalg: KDFALG,
