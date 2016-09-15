@@ -20,12 +20,11 @@ use std::path::Path;
 use rand::Rng;
 use rand::os::OsRng;
 
-use crypto::ed25519;
-use crypto::digest::Digest;
-use crypto::sha2::Sha512;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
 
-use ring::signature;
+use ring::rand::SystemRandom;
+use ring::signature::{self, Ed25519KeyPair};
+use ring::digest;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -194,11 +193,14 @@ impl PrivateKey {
     }
 
     fn sign(&self, msg: &[u8]) -> Signature {
-        let signature = ed25519::signature(msg, &self.seckey);
+        let keypair = Ed25519KeyPair::from_bytes(&self.seckey[0..32], &self.seckey[32..]).expect("invalid private key");
+        let signature = keypair.sign(msg);
+        let mut sig = [0; 64];
+        sig.copy_from_slice(signature.as_slice());
         Signature {
             pkgalg: PKGALG,
             keynum: self.keynum,
-            sig: signature
+            sig: sig
         }
     }
 }
@@ -433,17 +435,14 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let mut rng = OsRng::new().expect("Can't create random number generator");
     rng.fill_bytes(&mut keynum);
 
-    let mut seed = [0; 32];
-    rng.fill_bytes(&mut seed);
-    let (mut skey, pkey) = ed25519::keypair(&seed);
+    let (_, keypair_bytes) = Ed25519KeyPair::generate_serializable(&SystemRandom).expect("Can't generate key pair");
+    let mut skey = keypair_bytes.private_key;
+    let pkey = keypair_bytes.public_key;
 
     // Store private key
-    let mut ctx = Sha512::new();
-    ctx.input(&skey);
-    let mut digest = [0; 64];
-    ctx.result(&mut digest);
+    let digest = digest::digest(&digest::SHA512, &skey);
     let mut checksum = [0; 8];
-    checksum.copy_from_slice(&digest[0..8]);
+    checksum.copy_from_slice(&digest.as_ref()[0..8]);
 
     let mut salt = [0; 16];
     rng.fill_bytes(&mut salt);
@@ -454,6 +453,9 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
         *prv = *prv ^ xor;
     }
 
+    let mut sskey = [0; 64];
+    sskey[0..32].copy_from_slice(&skey[0..32]);
+    sskey[32..].copy_from_slice(&pkey);
     let private_key = PrivateKey {
         pkgalg: PKGALG,
         kdfalg: KDFALG,
@@ -461,7 +463,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
         salt: salt,
         checksum: checksum,
         keynum: keynum,
-        seckey: skey,
+        seckey: sskey,
     };
 
     let mut out = vec![];
