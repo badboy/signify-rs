@@ -348,6 +348,10 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
     let mut msg = vec![];
     msgfile.read_to_end(&mut msg).expect(&format!("Can't read file '{}'", msg_path));
 
+    if signature.keynum != pkey.keynum {
+        panic!("signature verification failed: checked against wrong key");
+    }
+
     if signature.verify(&msg, &pkey) {
         println!("Signature Verified");
     } else {
