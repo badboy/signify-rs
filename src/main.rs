@@ -446,12 +446,17 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
         *prv = *prv ^ xor;
     }
 
-    let mut sskey = [0; 64];
-    sskey[0..32].copy_from_slice(&skey[0..32]);
-    sskey[32..].copy_from_slice(&pkey);
+    // signify stores the extended key as the private key,
+    // that is the 32 byte of the secret key, followed by the 32 byte of the public key,
+    // summing up to 64 byte.
+    //
+    //  *ring* separates them, so we need to stick them together again.
+    let mut complete_key = [0; 64];
+    complete_key[0..32].copy_from_slice(&skey[0..32]);
+    complete_key[32..].copy_from_slice(&pkey);
 
     // Store private key
-    let digest = digest::digest(&digest::SHA512, &sskey);
+    let digest = digest::digest(&digest::SHA512, &complete_key);
     let mut checksum = [0; 8];
     checksum.copy_from_slice(&digest.as_ref()[0..8]);
 
@@ -462,7 +467,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
         salt: salt,
         checksum: checksum,
         keynum: keynum,
-        seckey: sskey,
+        seckey: complete_key,
     };
 
     let mut out = vec![];
