@@ -36,6 +36,19 @@ Verify the signature:
 signify -V -p pubkey -m README.md
 ```
 
+## Testing
+
+Currently, there are no unit tests. :disappointed:  
+But we ensure that a full cycle of generating a keypair, then signing & verifying works.
+To do so:
+
+    ./tests/full-cycle.sh
+
+For correctness, we compare interoperability with the OpenBSD `signify`:
+
+    ./tests/compare.sh
+    
+
 ## Limitations
 
 * No embedded signatures
