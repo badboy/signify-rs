@@ -22,7 +22,11 @@ trap cleanup SIGHUP SIGINT SIGTERM EXIT
 git clone $SIGNIFY_REPO || true
 pushd signify
 git pull
-make
+make \
+  BUNDLED_LIBBSD=1 \
+  BUNDLED_LIBBSD_VERIFY_GPG=0 \
+  LIBBSD_LDFLAGS="-lrt" \
+  WGET="wget --no-check-certificate"
 popd
 
 SIGNIFY=$(pwd)/$TMPDIR/signify/signify
