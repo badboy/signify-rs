@@ -1,10 +1,11 @@
 extern crate crypto;
 extern crate base64;
 extern crate byteorder;
-extern crate rand;
 extern crate docopt;
 extern crate rustc_serialize;
 extern crate rpassword;
+extern crate ring;
+extern crate untrusted;
 
 use std::process;
 use std::mem;
@@ -15,13 +16,11 @@ use std::fs::{OpenOptions, File};
 use std::convert::AsRef;
 use std::path::Path;
 
-use rand::Rng;
-use rand::os::OsRng;
-
-use crypto::ed25519;
-use crypto::digest::Digest;
-use crypto::sha2::Sha512;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
+
+use ring::rand::SystemRandom;
+use ring::signature::{self, Ed25519KeyPair};
+use ring::digest;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -190,11 +189,14 @@ impl PrivateKey {
     }
 
     fn sign(&self, msg: &[u8]) -> Signature {
-        let signature = ed25519::signature(msg, &self.seckey);
+        let keypair = Ed25519KeyPair::from_bytes(&self.seckey[0..32], &self.seckey[32..]).expect("invalid private key");
+        let signature = keypair.sign(msg);
+        let mut sig = [0; 64];
+        sig.copy_from_slice(signature.as_slice());
         Signature {
             pkgalg: PKGALG,
             keynum: self.keynum,
-            sig: signature
+            sig: sig
         }
     }
 }
@@ -229,7 +231,12 @@ impl Signature {
     }
 
     fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        ed25519::verify(msg, &pkey.publkey, &self.sig)
+        let public_key = untrusted::Input::from(&pkey.publkey);
+        let sig = untrusted::Input::from(&self.sig);
+        let msg = untrusted::Input::from(msg);
+
+        signature::verify(&signature::ED25519,
+                          public_key, msg, sig).is_ok()
     }
 }
 
@@ -355,6 +362,10 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
     let mut msg = vec![];
     msgfile.read_to_end(&mut msg).expect(&format!("Can't read file '{}'", msg_path));
 
+    if signature.keynum != pkey.keynum {
+        panic!("signature verification failed: checked against wrong key");
+    }
+
     if signature.verify(&msg, &pkey) {
         println!("Signature Verified");
     } else {
@@ -434,30 +445,34 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     };
 
     let mut keynum = [0; KEYNUMLEN];
+    SystemRandom.fill(&mut keynum).expect("Can't fill keynum randomly");
 
-    let mut rng = OsRng::new().expect("Can't create random number generator");
-    rng.fill_bytes(&mut keynum);
-
-    let mut seed = [0; 32];
-    rng.fill_bytes(&mut seed);
-    let (mut skey, pkey) = ed25519::keypair(&seed);
-
-    // Store private key
-    let mut ctx = Sha512::new();
-    ctx.input(&skey);
-    let mut digest = [0; 64];
-    ctx.result(&mut digest);
-    let mut checksum = [0; 8];
-    checksum.copy_from_slice(&digest[0..8]);
+    let (_, keypair_bytes) = Ed25519KeyPair::generate_serializable(&SystemRandom).expect("Can't generate key pair");
+    let mut skey = keypair_bytes.private_key;
+    let pkey = keypair_bytes.public_key;
 
     let mut salt = [0; 16];
-    rng.fill_bytes(&mut salt);
+    SystemRandom.fill(&mut salt).expect("Can't fill salt randomly");
 
     let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES);
 
     for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
         *prv = *prv ^ xor;
     }
+
+    // signify stores the extended key as the private key,
+    // that is the 32 byte of the secret key, followed by the 32 byte of the public key,
+    // summing up to 64 byte.
+    //
+    //  *ring* separates them, so we need to stick them together again.
+    let mut complete_key = [0; 64];
+    complete_key[0..32].copy_from_slice(&skey[0..32]);
+    complete_key[32..].copy_from_slice(&pkey);
+
+    // Store private key
+    let digest = digest::digest(&digest::SHA512, &complete_key);
+    let mut checksum = [0; 8];
+    checksum.copy_from_slice(&digest.as_ref()[0..8]);
 
     let private_key = PrivateKey {
         pkgalg: PKGALG,
@@ -466,7 +481,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
         salt: salt,
         checksum: checksum,
         keynum: keynum,
-        seckey: skey,
+        seckey: complete_key,
     };
 
     let mut out = vec![];
