@@ -10,34 +10,22 @@ extern crate untrusted;
 use std::process;
 use std::mem;
 use std::io::prelude::*;
-use std::io::{self, BufReader, Cursor};
+use std::io::{self, BufReader};
 use std::io::Result as IoResult;
 use std::fs::{OpenOptions, File};
 use std::convert::AsRef;
 use std::path::Path;
 
-use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
-
 use ring::rand::SystemRandom;
-use ring::signature::{self, Ed25519KeyPair};
+use ring::signature::Ed25519KeyPair;
 use ring::digest;
-
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
 
 use docopt::Docopt;
 
+mod structs;
+use structs::*;
 
-const KEYNUMLEN : usize = 8;
-const PUBLICBYTES : usize = 32;
-const SECRETBYTES : usize = 64;
-const SIGBYTES : usize = 64;
-
-const PKGALG : [u8; 2] = *b"Ed";
-const KDFALG : [u8; 2] = *b"BK";
-
-const COMMENTHDR : &'static str = "untrusted comment: ";
-const COMMENTHDRLEN : usize = 19;
-const COMMENTMAXLEN : usize = 1024;
 
 const USAGE: &'static str = "
 signify-rs
@@ -80,164 +68,6 @@ enum FileContent {
     PublicKey(PublicKey),
     PrivateKey(PrivateKey),
     Signature(Signature),
-}
-
-
-struct PublicKey {
-    pkgalg: [u8; 2],
-    keynum: [u8; KEYNUMLEN],
-    publkey: [u8; PUBLICBYTES],
-}
-
-struct PrivateKey {
-   pkgalg: [u8; 2],
-   kdfalg: [u8; 2],
-   kdfrounds: u32,
-   salt: [u8; 16],
-   checksum: [u8; 8],
-   keynum: [u8; KEYNUMLEN],
-   seckey: [u8; SECRETBYTES],
-}
-
-struct Signature {
-    pkgalg: [u8; 2],
-    keynum: [u8; KEYNUMLEN],
-    sig: [u8; SIGBYTES],
-}
-
-impl PublicKey {
-    fn with_key_and_keynum(key: [u8; PUBLICBYTES], keynum: [u8; KEYNUMLEN]) -> PublicKey {
-        PublicKey {
-            pkgalg: PKGALG,
-            keynum: keynum,
-            publkey: key,
-        }
-    }
-
-    fn write<W: Write>(&self, mut w: W) -> Result<(), io::Error> {
-        try!(w.write(&self.pkgalg));
-        try!(w.write(&self.keynum));
-        try!(w.write(&self.publkey));
-
-        Ok(())
-    }
-
-    fn from_buf(buf: &[u8]) -> Result<PublicKey, io::Error> {
-        assert!(buf.len() >= mem::size_of::<Self>());
-
-        let mut buf = Cursor::new(buf);
-
-        let mut pkgalg = [0; 2];
-        let mut keynum = [0; KEYNUMLEN];
-        let mut publkey = [0; PUBLICBYTES];
-
-        try!(buf.read(&mut pkgalg));
-        try!(buf.read(&mut keynum));
-        try!(buf.read(&mut publkey));
-
-        Ok(PublicKey {
-            pkgalg: pkgalg,
-            keynum: keynum,
-            publkey: publkey,
-        })
-    }
-}
-
-impl PrivateKey {
-    fn write<W: Write>(&self, mut w: W) -> Result<(), io::Error> {
-        try!(w.write(&self.pkgalg));
-        try!(w.write(&self.kdfalg));
-        try!(w.write_u32::<BigEndian>(self.kdfrounds));
-        try!(w.write(&self.salt));
-        try!(w.write(&self.checksum));
-        try!(w.write(&self.keynum));
-        try!(w.write(&self.seckey));
-
-        Ok(())
-    }
-
-    fn from_buf(buf: &[u8]) -> Result<PrivateKey, io::Error> {
-        assert!(buf.len() >= mem::size_of::<Self>());
-
-        let mut buf = Cursor::new(buf);
-
-        let mut pkgalg = [0; 2];
-        let mut kdfalg = [0; 2];
-        let kdfrounds;
-        let mut salt = [0; 16];
-        let mut checksum = [0; 8];
-        let mut keynum = [0; KEYNUMLEN];
-        let mut seckey = [0; SECRETBYTES];
-
-        try!(buf.read(&mut pkgalg));
-        try!(buf.read(&mut kdfalg));
-        kdfrounds = try!(buf.read_u32::<BigEndian>());
-        try!(buf.read(&mut salt));
-        try!(buf.read(&mut checksum));
-        try!(buf.read(&mut keynum));
-        try!(buf.read(&mut seckey));
-
-        Ok(PrivateKey {
-            pkgalg: pkgalg,
-            kdfalg: kdfalg,
-            kdfrounds: kdfrounds,
-            salt: salt,
-            checksum: checksum,
-            keynum: keynum,
-            seckey: seckey,
-        })
-    }
-
-    fn sign(&self, msg: &[u8]) -> Signature {
-        let keypair = Ed25519KeyPair::from_bytes(&self.seckey[0..32], &self.seckey[32..]).expect("invalid private key");
-        let signature = keypair.sign(msg);
-        let mut sig = [0; 64];
-        sig.copy_from_slice(signature.as_slice());
-        Signature {
-            pkgalg: PKGALG,
-            keynum: self.keynum,
-            sig: sig
-        }
-    }
-}
-
-impl Signature {
-    fn write<W: Write>(&self, mut w: W) -> Result<(), io::Error> {
-        try!(w.write(&self.pkgalg));
-        try!(w.write(&self.keynum));
-        try!(w.write(&self.sig));
-
-        Ok(())
-    }
-
-    fn from_buf(buf: &[u8]) -> Result<Signature, io::Error> {
-        assert!(buf.len() >= mem::size_of::<Self>());
-
-        let mut buf = Cursor::new(buf);
-
-        let mut pkgalg = [0; 2];
-        let mut keynum = [0; KEYNUMLEN];
-        let mut sig = [0; SIGBYTES];
-
-        try!(buf.read(&mut pkgalg));
-        try!(buf.read(&mut keynum));
-        try!(buf.read(&mut sig));
-
-        Ok(Signature {
-            pkgalg: pkgalg,
-            keynum: keynum,
-            sig: sig,
-        })
-    }
-
-    fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        let public_key = untrusted::Input::from(&pkey.publkey);
-        let sig = untrusted::Input::from(&self.sig);
-        let msg = untrusted::Input::from(msg);
-
-        signature::verify(&signature::ED25519,
-                          public_key, msg, sig).is_ok()
-    }
 }
 
 fn human<P: AsRef<Path>>(file: P, result: Result<(), io::Error>) {
@@ -400,7 +230,7 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) {
         None => format!("{}.sig", msg_path)
     };
 
-    let sig = skey.sign(&msg);
+    let sig = skey.sign(&msg).expect("Valid signature");
 
     let mut out = vec![];
     sig.write(&mut out).expect("Can't write to internal buffer");
