@@ -1,11 +1,12 @@
 use std::mem;
 use std::io::prelude::*;
-use std::io::{self, Cursor};
+use std::io::Cursor;
+
+use errors::*;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use ring::signature::{self, Ed25519KeyPair};
-use ring::error::Unspecified;
 use untrusted;
 
 pub const KEYNUMLEN : usize = 8;
@@ -51,7 +52,7 @@ impl PublicKey {
         }
     }
 
-    pub fn write<W: Write>(&self, mut w: W) -> Result<(), io::Error> {
+    pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
         try!(w.write(&self.pkgalg));
         try!(w.write(&self.keynum));
         try!(w.write(&self.publkey));
@@ -59,7 +60,7 @@ impl PublicKey {
         Ok(())
     }
 
-    pub fn from_buf(buf: &[u8]) -> Result<PublicKey, io::Error> {
+    pub fn from_buf(buf: &[u8]) -> Result<PublicKey> {
         assert!(buf.len() >= mem::size_of::<Self>());
 
         let mut buf = Cursor::new(buf);
@@ -81,7 +82,7 @@ impl PublicKey {
 }
 
 impl PrivateKey {
-    pub fn write<W: Write>(&self, mut w: W) -> Result<(), io::Error> {
+    pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
         try!(w.write(&self.pkgalg));
         try!(w.write(&self.kdfalg));
         try!(w.write_u32::<BigEndian>(self.kdfrounds));
@@ -93,7 +94,7 @@ impl PrivateKey {
         Ok(())
     }
 
-    pub fn from_buf(buf: &[u8]) -> Result<PrivateKey, io::Error> {
+    pub fn from_buf(buf: &[u8]) -> Result<PrivateKey> {
         assert!(buf.len() >= mem::size_of::<Self>());
 
         let mut buf = Cursor::new(buf);
@@ -125,7 +126,7 @@ impl PrivateKey {
         })
     }
 
-    pub fn sign(&self, msg: &[u8]) -> Result<Signature, Unspecified> {
+    pub fn sign(&self, msg: &[u8]) -> Result<Signature> {
         let keypair = try!(Ed25519KeyPair::from_bytes(&self.seckey[0..32], &self.seckey[32..]));
         let signature = keypair.sign(msg);
         let mut sig = [0; 64];
@@ -139,7 +140,7 @@ impl PrivateKey {
 }
 
 impl Signature {
-    pub fn write<W: Write>(&self, mut w: W) -> Result<(), io::Error> {
+    pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
         try!(w.write(&self.pkgalg));
         try!(w.write(&self.keynum));
         try!(w.write(&self.sig));
@@ -147,7 +148,7 @@ impl Signature {
         Ok(())
     }
 
-    pub fn from_buf(buf: &[u8]) -> Result<Signature, io::Error> {
+    pub fn from_buf(buf: &[u8]) -> Result<Signature> {
         assert!(buf.len() >= mem::size_of::<Self>());
 
         let mut buf = Cursor::new(buf);
