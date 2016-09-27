@@ -307,7 +307,7 @@ fn human(res: Result<()>) {
     match res {
         Err(e) => {
             let mut it = e.iter();
-            let e = it.next().unwrap();
+            let e = it.next().unwrap(); // We have an error, so we can definitely unwrap it.
             let next_err = it.next();
             if let Some(next_err) = next_err {
                 println!("{}: {}", e, next_err);
