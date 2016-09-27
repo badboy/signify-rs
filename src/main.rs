@@ -100,7 +100,7 @@ fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<FileContent> {
     }
 
     if len > COMMENTHDRLEN + COMMENTMAXLEN {
-        return Err(format!("comment too long").into());
+        return Err("comment too long".into());
     }
 
     let mut base64_line = String::new();
@@ -125,21 +125,21 @@ fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<FileContent> {
 
     match data.len() {
         x if x == mem::size_of::<PublicKey>() => {
-            return PublicKey::from_buf(&data)
-                .map(FileContent::PublicKey);
-        },
+            PublicKey::from_buf(&data)
+                .map(FileContent::PublicKey)
+        }
         x if x == mem::size_of::<PrivateKey>() => {
-            return PrivateKey::from_buf(&data)
-                .map(FileContent::PrivateKey);
-        },
+            PrivateKey::from_buf(&data)
+                .map(FileContent::PrivateKey)
+        }
         x if x == mem::size_of::<Signature>() => {
-            return Signature::from_buf(&data)
-                .map(FileContent::Signature);
+            Signature::from_buf(&data)
+                .map(FileContent::Signature)
         },
         _ => {
-            return Err(format!("unsupported file {}", file_display).into());
-        },
-    };
+            Err(format!("unsupported file {}", file_display).into())
+        }
+    }
 }
 
 fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>) -> Result<()> {
@@ -168,9 +168,9 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
 
     if signature.verify(&msg, &pkey) {
         println!("Signature Verified");
-        return Ok(());
+        Ok(())
     } else {
-        return Err("signature verification failed".into());
+        Err("signature verification failed".into())
     }
 }
 
