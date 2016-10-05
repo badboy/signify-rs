@@ -10,7 +10,6 @@ extern crate untrusted;
 extern crate error_chain;
 
 use std::process;
-use std::mem;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::fs::{OpenOptions, File};
@@ -66,12 +65,6 @@ struct Args {
     flag_n: bool,
 }
 
-enum FileContent {
-    PublicKey(PublicKey),
-    PrivateKey(PrivateKey),
-    Signature(Signature),
-}
-
 fn write_base64_file<P: AsRef<Path>>(file: P, comment: &str, buf: &[u8]) -> Result<()> {
     let mut f = try!(OpenOptions::new().write(true).create_new(true).open(file));
 
@@ -83,7 +76,7 @@ fn write_base64_file<P: AsRef<Path>>(file: P, comment: &str, buf: &[u8]) -> Resu
     Ok(())
 }
 
-fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<FileContent> {
+fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<Vec<u8>> {
     let file_display = format!("{}", file.as_ref().display());
     let f = try!(File::open(file));
     let mut reader = BufReader::new(f);
@@ -123,40 +116,22 @@ fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<FileContent> {
         return Err(format!("unsupported file {}", file_display).into());
     }
 
-    match data.len() {
-        x if x == mem::size_of::<PublicKey>() => {
-            PublicKey::from_buf(&data)
-                .map(FileContent::PublicKey)
-        }
-        x if x == mem::size_of::<PrivateKey>() => {
-            PrivateKey::from_buf(&data)
-                .map(FileContent::PrivateKey)
-        }
-        x if x == mem::size_of::<Signature>() => {
-            Signature::from_buf(&data)
-                .map(FileContent::Signature)
-        },
-        _ => {
-            Err(format!("unsupported file {}", file_display).into())
-        }
-    }
+    Ok(data)
 }
 
 fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>) -> Result<()> {
-    let pkey = match read_base64_file(&pubkey_path) {
-        Ok(FileContent::PublicKey(pkey)) => pkey,
-        _ => return Err("an error occured.".into()),
-    };
+    // TODO: Better error message?
+    let serialized_pkey = try!(read_base64_file(&pubkey_path));
+    let pkey = try!(PublicKey::from_buf(&serialized_pkey));
 
     let signature_path = match signature_path {
         Some(path) => path,
         None => format!("{}.sig", msg_path)
     };
 
-    let signature = match read_base64_file(&signature_path) {
-        Ok(FileContent::Signature(sig)) => sig,
-        _ => return Err(format!("Can't read signature from {}", signature_path).into()),
-    };
+    // TODO: Better error message?
+    let serialized_signature = try!(read_base64_file(&signature_path));
+    let signature = try!(Signature::from_buf(&serialized_signature));
 
     let mut msgfile = try!(File::open(&msg_path).chain_err(|| read_error(&msg_path)));
     let mut msg = vec![];
@@ -175,10 +150,8 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
 }
 
 fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) -> Result<()> {
-    let mut skey = match read_base64_file(&seckey_path) {
-        Ok(FileContent::PrivateKey(skey)) => skey,
-        _ => return Err("an error occured.".into()),
-    };
+    let serialized_skey = try!(read_base64_file(&seckey_path));
+    let mut skey = try!(PrivateKey::from_buf(&serialized_skey));
 
     let rounds = skey.kdfrounds;
     let xorkey = try!(kdf(&skey.salt, rounds, false, SECRETBYTES));
