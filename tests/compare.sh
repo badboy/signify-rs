@@ -9,12 +9,12 @@ cd $SCRIPTPATH
 
 SIGNIFY_REPO="https://github.com/aperezdc/signify"
 
-PUB=$(mktemp -u pub.$$.XXXXXXXXXX)
-PRIV=$(mktemp -u priv.$$.XXXXXXXXXX)
 MSG=$(mktemp -u msg.$$.XXXXXXXXXX)
+PUB="${MSG}_key.pub"
+PRIV="${MSG}_key.sec"
 
 cleanup() {
-  rm -f $PUB $PRIV $MSG $MSG.sig
+  rm -f $PUB $PRIV $MSG $MSG.sig || true
 }
 
 trap cleanup SIGHUP SIGINT SIGTERM EXIT
@@ -72,3 +72,5 @@ head -c 100 /dev/urandom > $MSG
 cargo run -q -- -S -s $PRIV -m $MSG -x ${MSG}.sig
 $SIGNIFY -V -p $PUB -m $MSG -x ${MSG}.sig
 cleanup
+
+exit 0
