@@ -51,7 +51,7 @@ For correctness, we compare interoperability with the OpenBSD `signify`:
 
 ## Limitations
 
-* No embedded signatures
+* ~~No embedded signatures~~
 * ~~No password-protection for secret keys~~
 
 Both things will be implemented eventually.

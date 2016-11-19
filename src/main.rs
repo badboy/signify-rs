@@ -13,7 +13,6 @@ use std::process;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::fs::{OpenOptions, File};
-use std::path::Path;
 
 use ring::rand::SystemRandom;
 use ring::signature::Ed25519KeyPair;
@@ -34,12 +33,14 @@ signify-rs
 Usage:
   signify -h
   signify -G [-n] [-c <comment>] -p <pubkey> -s <seckey>
-  signify -S [-x <sigfile>] -s <seckey> -m <message>
-  signify -V [-x <sigfile>] -p <pubkey> -m <message>
+  signify -S [-e] [-x <sigfile>] -s <seckey> -m <message>
+  signify -V [-e] [-x <sigfile>] -p <pubkey> -m <message>
 
 Options:
   -h --help     Show this screen.
   -c <comment>  Specify the comment to be added during key generation.
+  -e            When signing, embed the message after the signature. When verifying extract the message from
+                the signature.
   -m <message>  When signing, the file containing the message to sign.  When verifying, the file containing the
                 message to verify.  When verifying with -e, the file to create.
   -n            Do not ask for a passphrase during key generation. Otherwise, signify will prompt the user for a
@@ -58,6 +59,7 @@ struct Args {
 
     flag_x: Option<String>,
     flag_c: Option<String>,
+    flag_e: bool,
 
     flag_p: String,
     flag_s: String,
@@ -65,22 +67,16 @@ struct Args {
     flag_n: bool,
 }
 
-fn write_base64_file<P: AsRef<Path>>(file: P, comment: &str, buf: &[u8]) -> Result<()> {
-    let mut f = try!(OpenOptions::new().write(true).create_new(true).open(file));
-
-    try!(write!(f, "{}", COMMENTHDR));
-    try!(write!(f, "{}\n", comment));
+fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
+    try!(write!(file, "{}", COMMENTHDR));
+    try!(write!(file, "{}\n", comment));
     let out = base64::encode(buf);
-    try!(write!(f, "{}\n", out));
+    try!(write!(file, "{}\n", out));
 
     Ok(())
 }
 
-fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<Vec<u8>> {
-    let file_display = format!("{}", file.as_ref().display());
-    let f = try!(File::open(file));
-    let mut reader = BufReader::new(f);
-
+fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Result<Vec<u8>> {
     let mut comment_line = String::new();
     let len = try!(reader.read_line(&mut comment_line));
 
@@ -119,23 +115,36 @@ fn read_base64_file<P: AsRef<Path>>(file: P) -> Result<Vec<u8>> {
     Ok(data)
 }
 
-fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>) -> Result<()> {
+fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>, embed: bool) -> Result<()> {
     // TODO: Better error message?
-    let serialized_pkey = try!(read_base64_file(&pubkey_path));
+
+    let pubkey_file = try!(File::open(&pubkey_path));
+    let mut pubkey = BufReader::new(pubkey_file);
+    let serialized_pkey = try!(read_base64_file(&pubkey_path, &mut pubkey));
     let pkey = try!(PublicKey::from_buf(&serialized_pkey));
+
 
     let signature_path = match signature_path {
         Some(path) => path,
         None => format!("{}.sig", msg_path)
     };
 
+    let signature_file = try!(File::open(&signature_path));
+    let mut sig_data = BufReader::new(signature_file);
+
     // TODO: Better error message?
-    let serialized_signature = try!(read_base64_file(&signature_path));
+    let serialized_signature = try!(read_base64_file(&signature_path, &mut sig_data));
     let signature = try!(Signature::from_buf(&serialized_signature));
 
-    let mut msgfile = try!(File::open(&msg_path).chain_err(|| read_error(&msg_path)));
+
     let mut msg = vec![];
-    try!(msgfile.read_to_end(&mut msg).chain_err(|| read_error(&msg_path)));
+
+    if embed {
+        try!(sig_data.read_to_end(&mut msg).chain_err(|| read_error(&msg_path)));
+    } else {
+        let mut msgfile = try!(File::open(&msg_path).chain_err(|| read_error(&msg_path)));
+        try!(msgfile.read_to_end(&mut msg).chain_err(|| read_error(&msg_path)));
+    }
 
     if signature.keynum != pkey.keynum {
         return Err("signature verification failed: checked against wrong key".into());
@@ -149,8 +158,11 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>)
     }
 }
 
-fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) -> Result<()> {
-    let serialized_skey = try!(read_base64_file(&seckey_path));
+fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, embed: bool) -> Result<()> {
+    let seckey_file = try!(File::open(&seckey_path));
+    let mut seckey = BufReader::new(seckey_file);
+
+    let serialized_skey = try!(read_base64_file(&seckey_path, &mut seckey));
     let mut skey = try!(PrivateKey::from_buf(&serialized_skey));
 
     let rounds = skey.kdfrounds;
@@ -178,8 +190,15 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>) -
 
     let sig_comment = "signature from signify secret key";
 
-    write_base64_file(&signature_path, sig_comment, &out)
-        .chain_err(|| "Failed to write signature file")
+    let mut file = try!(OpenOptions::new().write(true).create_new(true).open(&signature_path));
+    try!(write_base64_file(&mut file, sig_comment, &out)
+        .chain_err(|| "Failed to write signature file"));
+
+    if embed {
+        try!(file.write(&msg));
+    }
+
+    Ok(())
 }
 
 fn read_password(prompt: &str) -> Result<String> {
@@ -261,9 +280,9 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     try!(private_key.write(&mut out).chain_err(|| "Can't write to internal buffer"));
 
     let priv_comment = format!("{} secret key", comment);
-    try!(write_base64_file(&privkey_path, &priv_comment, &out)
-        .chain_err(|| write_error(&privkey_path))
-    );
+    let mut file = try!(OpenOptions::new().write(true).create_new(true).open(&privkey_path));
+    try!(write_base64_file(&mut file, &priv_comment, &out)
+        .chain_err(|| write_error(&privkey_path)));
 
     // Store public key
     let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
@@ -272,7 +291,8 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     try!(public_key.write(&mut out).chain_err(|| "Can't write to internal buffer"));
 
     let pub_comment = format!("{} public key", comment);
-    write_base64_file(&pubkey_path, &pub_comment, &out)
+    let mut file = try!(OpenOptions::new().write(true).create_new(true).open(&pubkey_path));
+    write_base64_file(&mut file, &pub_comment, &out)
         .chain_err(|| write_error(&pubkey_path))
 }
 
@@ -300,11 +320,11 @@ fn main() {
         .unwrap_or_else(|e| e.exit());
 
     if args.flag_V {
-        human(verify(args.flag_p, args.flag_m, args.flag_x));
+        human(verify(args.flag_p, args.flag_m, args.flag_x, args.flag_e));
     } else if args.flag_G {
         let rounds = if args.flag_n { 0 } else { 42 };
         human(generate(args.flag_p, args.flag_s, args.flag_c, rounds));
     } else if args.flag_S {
-        human(sign(args.flag_s, args.flag_m, args.flag_x));
+        human(sign(args.flag_s, args.flag_m, args.flag_x, args.flag_e));
     }
 }
