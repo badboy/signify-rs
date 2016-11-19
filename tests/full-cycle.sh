@@ -30,8 +30,8 @@ head -c 100 /dev/urandom > $MSG
 cargo run -- -S -e -s $PRIV -m $MSG
 cargo run -- -V -e -p $PUB -m $MSG
 
-MSG_SIZE=$(stat --printf="%s" $MSG)
-SIG_SIZE=$(stat --printf="%s" $MSG.sig)
+MSG_SIZE=$(wc -c $MSG | awk '{print $1}')
+SIG_SIZE=$(wc -c $MSG.sig | awk '{print $1}')
 [ $SIG_SIZE -gt $MSG_SIZE ]
 
 cleanup

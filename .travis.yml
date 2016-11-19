@@ -22,8 +22,7 @@ script:
       travis-cargo test &&
       travis-cargo --only stable doc
   - ./tests/full-cycle.sh
-  - |
-      [ "$TRAVIS_OS_NAME" = "osx" ] || ./tests/integration.sh
+  - ./tests/integration.sh
   - |
       [ "$TRAVIS_OS_NAME" = "osx" ] || ./tests/compare.sh
 
