@@ -2,6 +2,7 @@
 
 [![crates.io](http://meritbadge.herokuapp.com/signify)](https://crates.io/crates/signify)
 [![Build Status](https://travis-ci.org/badboy/signify-rs.svg?branch=master)](https://travis-ci.org/badboy/signify-rs)
+[![Clippy Linting Result](https://clippy.bashy.io/github/badboy/signify-rs/master/badge.svg)](https://clippy.bashy.io/github/badboy/signify-rs/master/log)
 
 Create cryptographic signatures for files and verify them.
 This is based on [signify][], the OpenBSD tool to sign and verify signatures on files.
