@@ -22,12 +22,12 @@ include = [
 ]
 
 [dependencies]
-byteorder = "0.5.3"
+byteorder = "1.0.0"
 rust-crypto = "0.2.36"
-base64 = "0.2.0"
-docopt = "0.6"
-rustc-serialize = "0.3.19"
-rpassword = "0.2.2"
-ring = "0.4.3"
-untrusted = "0.3.1"
-error-chain = "0.5.0"
+base64 = "0.5.0"
+docopt = "0.7"
+rustc-serialize = "0.3"
+rpassword = "0.4"
+ring = "0.9.0"
+untrusted = "0.5"
+error-chain = "0.10.0"
