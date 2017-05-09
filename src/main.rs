@@ -14,7 +14,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::fs::{OpenOptions, File};
 
-use ring::rand::SystemRandom;
+use ring::rand::{SystemRandom, SecureRandom};
 use ring::signature::Ed25519KeyPair;
 use ring::digest;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
@@ -239,9 +239,30 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let mut keynum = [0; KEYNUMLEN];
     try!(SystemRandom.fill(&mut keynum).chain_err(|| "Can't fill keynum randomly"));
 
-    let (_, keypair_bytes) = try!(Ed25519KeyPair::generate_serializable(&SystemRandom));
-    let mut skey = keypair_bytes.private_key;
-    let pkey = keypair_bytes.public_key;
+    let pkcs8 = try!(Ed25519KeyPair::generate_pkcs8(&SystemRandom));
+    let mut skey = [0; 32];
+    let mut pkey = [0; 32];
+    let mut complete_key = [0; 64];
+
+    // signify stores the extended key as the private key,
+    // that is the 32 byte of the secret key, followed by the 32 byte of the public key,
+    // summing up to 64 byte.
+    //
+    //  *ring* only gives access to the pkcs8 encoding.
+    //  We hackily extract the data from there.
+    //
+    //  The pkcs8 format is:
+    //  "prefix||private_key||middle||public_key"
+    //
+    //  The private key begins at 0x10 = 16,
+    //  the public key is at the end
+    const PKCS8_SEED_INDEX : usize = 0x10;
+
+    skey.copy_from_slice(&pkcs8[PKCS8_SEED_INDEX..(PKCS8_SEED_INDEX + 32)]);
+    pkey.copy_from_slice(&pkcs8[(pkcs8.len()-32)..]);
+    complete_key[0..32].copy_from_slice(&skey);
+    complete_key[32..].copy_from_slice(&pkey);
+
 
     let mut salt = [0; 16];
     try!(SystemRandom.fill(&mut salt).chain_err(|| "Can't fill salt randomly"));
@@ -251,15 +272,6 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
         *prv = *prv ^ xor;
     }
-
-    // signify stores the extended key as the private key,
-    // that is the 32 byte of the secret key, followed by the 32 byte of the public key,
-    // summing up to 64 byte.
-    //
-    //  *ring* separates them, so we need to stick them together again.
-    let mut complete_key = [0; 64];
-    complete_key[0..32].copy_from_slice(&skey[0..32]);
-    complete_key[32..].copy_from_slice(&pkey);
 
     // Store private key
     let digest = digest::digest(&digest::SHA512, &complete_key);
