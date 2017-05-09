@@ -1,13 +1,13 @@
 use std::path::Path;
 use std::io;
 use ring::error::Unspecified;
-use base64::Base64Error;
+use base64::DecodeError;
 
 error_chain! {
     foreign_links {
-        io::Error, IoError;
-        Unspecified, Unspecified;
-        Base64Error, Base64;
+        IoError(io::Error);
+        Unspecified(Unspecified);
+        Base64(DecodeError);
     }
 }
 
