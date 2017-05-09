@@ -262,6 +262,10 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     pkey.copy_from_slice(&pkcs8[(pkcs8.len()-32)..]);
     complete_key[0..32].copy_from_slice(&skey);
     complete_key[32..].copy_from_slice(&pkey);
+    Ed25519KeyPair::from_seed_and_public_key(
+        untrusted::Input::from(&skey),
+        untrusted::Input::from(&pkey)
+    )?;
 
 
     let mut salt = [0; 16];
