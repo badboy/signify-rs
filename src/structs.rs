@@ -53,9 +53,9 @@ impl PublicKey {
     }
 
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
-        try!(w.write(&self.pkgalg));
-        try!(w.write(&self.keynum));
-        try!(w.write(&self.publkey));
+        w.write(&self.pkgalg)?;
+        w.write(&self.keynum)?;
+        w.write(&self.publkey)?;
 
         Ok(())
     }
@@ -69,9 +69,9 @@ impl PublicKey {
         let mut keynum = [0; KEYNUMLEN];
         let mut publkey = [0; PUBLICBYTES];
 
-        try!(buf.read(&mut pkgalg));
-        try!(buf.read(&mut keynum));
-        try!(buf.read(&mut publkey));
+        buf.read(&mut pkgalg)?;
+        buf.read(&mut keynum)?;
+        buf.read(&mut publkey)?;
 
         Ok(PublicKey {
             pkgalg: pkgalg,
@@ -83,13 +83,13 @@ impl PublicKey {
 
 impl PrivateKey {
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
-        try!(w.write(&self.pkgalg));
-        try!(w.write(&self.kdfalg));
-        try!(w.write_u32::<BigEndian>(self.kdfrounds));
-        try!(w.write(&self.salt));
-        try!(w.write(&self.checksum));
-        try!(w.write(&self.keynum));
-        try!(w.write(&self.seckey));
+        w.write(&self.pkgalg)?;
+        w.write(&self.kdfalg)?;
+        w.write_u32::<BigEndian>(self.kdfrounds)?;
+        w.write(&self.salt)?;
+        w.write(&self.checksum)?;
+        w.write(&self.keynum)?;
+        w.write(&self.seckey)?;
 
         Ok(())
     }
@@ -107,13 +107,13 @@ impl PrivateKey {
         let mut keynum = [0; KEYNUMLEN];
         let mut seckey = [0; SECRETBYTES];
 
-        try!(buf.read(&mut pkgalg));
-        try!(buf.read(&mut kdfalg));
-        kdfrounds = try!(buf.read_u32::<BigEndian>());
-        try!(buf.read(&mut salt));
-        try!(buf.read(&mut checksum));
-        try!(buf.read(&mut keynum));
-        try!(buf.read(&mut seckey));
+        buf.read(&mut pkgalg)?;
+        buf.read(&mut kdfalg)?;
+        kdfrounds = buf.read_u32::<BigEndian>()?;
+        buf.read(&mut salt)?;
+        buf.read(&mut checksum)?;
+        buf.read(&mut keynum)?;
+        buf.read(&mut seckey)?;
 
         Ok(PrivateKey {
             pkgalg: pkgalg,
@@ -141,9 +141,9 @@ impl PrivateKey {
 
 impl Signature {
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
-        try!(w.write(&self.pkgalg));
-        try!(w.write(&self.keynum));
-        try!(w.write(&self.sig));
+        w.write(&self.pkgalg)?;
+        w.write(&self.keynum)?;
+        w.write(&self.sig)?;
 
         Ok(())
     }
@@ -157,9 +157,9 @@ impl Signature {
         let mut keynum = [0; KEYNUMLEN];
         let mut sig = [0; SIGBYTES];
 
-        try!(buf.read(&mut pkgalg));
-        try!(buf.read(&mut keynum));
-        try!(buf.read(&mut sig));
+        buf.read(&mut pkgalg)?;
+        buf.read(&mut keynum)?;
+        buf.read(&mut sig)?;
 
         Ok(Signature {
             pkgalg: pkgalg,

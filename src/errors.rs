@@ -1,22 +1,13 @@
-use std::path::Path;
-use std::io;
-use ring::error::Unspecified;
-use base64::Base64Error;
+use failure;
 
-error_chain! {
-    foreign_links {
-        io::Error, IoError;
-        Unspecified, Unspecified;
-        Base64Error, Base64;
-    }
+pub type Result<T> = ::std::result::Result<T, failure::Error>;
+
+#[derive(Debug, Fail)]
+pub enum SignifyError {
+    #[fail(display = "{}", _0)]
+    MessageFail(String),
 }
 
-pub fn write_error<P: AsRef<Path>>(file: P) -> String {
-    let file = file.as_ref();
-    format!("can't open '{}' for writing", file.display())
-}
-
-pub fn read_error<P: AsRef<Path>>(file: P) -> String {
-    let file = file.as_ref();
-    format!("can't open '{}' for reading", file.display())
+pub fn error<T, S: Into<String>>(msg: S) -> Result<T> {
+    Err(SignifyError::MessageFail(msg.into()).into())
 }

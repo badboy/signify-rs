@@ -6,8 +6,8 @@ extern crate rustc_serialize;
 extern crate rpassword;
 extern crate ring;
 extern crate untrusted;
-#[macro_use]
-extern crate error_chain;
+extern crate failure;
+#[macro_use] extern crate derive_fail;
 
 use std::process;
 use std::io::prelude::*;
@@ -68,48 +68,47 @@ struct Args {
 }
 
 fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
-    try!(write!(file, "{}", COMMENTHDR));
-    try!(write!(file, "{}\n", comment));
+    write!(file, "{}", COMMENTHDR)?;
+    write!(file, "{}\n", comment)?;
     let out = base64::encode(buf);
-    try!(write!(file, "{}\n", out));
+    write!(file, "{}\n", out)?;
 
     Ok(())
 }
 
 fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Result<Vec<u8>> {
     let mut comment_line = String::new();
-    let len = try!(reader.read_line(&mut comment_line));
+    let len = reader.read_line(&mut comment_line)?;
 
     if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
-        return Err(format!("invalid comment in {}; must start with '{}'", file_display, COMMENTHDR).into());
+        return error(format!("invalid comment in {}; must start with '{}'", file_display, COMMENTHDR));
     }
 
     if &comment_line[len-1..len] != "\n" {
-        return Err(format!("missing new line after comment in {}", file_display).into());
+        return error(format!("missing new line after comment in {}", file_display));
     }
 
     if len > COMMENTHDRLEN + COMMENTMAXLEN {
-        return Err("comment too long".into());
+        return error("comment too long");
     }
 
     let mut base64_line = String::new();
-    let len = try!(reader.read_line(&mut base64_line));
+    let len = reader.read_line(&mut base64_line)?;
 
     if len == 0 {
-        return Err(format!("missing line in {}", file_display).into());
+        return error(format!("missing line in {}", file_display));
     }
 
     if &base64_line[len-1..len] != "\n" {
-        return Err(format!("missing new line after comment in {}", file_display).into());
+        return error(format!("missing new line after comment in {}", file_display));
     }
 
     let base64_line = &base64_line[0..len-1];
 
-    let data = try!(base64::decode(base64_line)
-                    .chain_err(|| format!("invalid base64 encoding in {}", file_display)));
+    let data = base64::decode(base64_line)?;
 
     if &data[0..2] != PKGALG {
-        return Err(format!("unsupported file {}", file_display).into());
+        return error(format!("unsupported file {}", file_display));
     }
 
     Ok(data)
@@ -118,10 +117,10 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
 fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>, embed: bool) -> Result<()> {
     // TODO: Better error message?
 
-    let pubkey_file = try!(File::open(&pubkey_path));
+    let pubkey_file = File::open(&pubkey_path)?;
     let mut pubkey = BufReader::new(pubkey_file);
-    let serialized_pkey = try!(read_base64_file(&pubkey_path, &mut pubkey));
-    let pkey = try!(PublicKey::from_buf(&serialized_pkey));
+    let serialized_pkey = read_base64_file(&pubkey_path, &mut pubkey)?;
+    let pkey = PublicKey::from_buf(&serialized_pkey)?;
 
 
     let signature_path = match signature_path {
@@ -129,73 +128,71 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>,
         None => format!("{}.sig", msg_path)
     };
 
-    let signature_file = try!(File::open(&signature_path));
+    let signature_file = File::open(&signature_path)?;
     let mut sig_data = BufReader::new(signature_file);
 
     // TODO: Better error message?
-    let serialized_signature = try!(read_base64_file(&signature_path, &mut sig_data));
-    let signature = try!(Signature::from_buf(&serialized_signature));
+    let serialized_signature = read_base64_file(&signature_path, &mut sig_data)?;
+    let signature = Signature::from_buf(&serialized_signature)?;
 
 
     let mut msg = vec![];
 
     if embed {
-        try!(sig_data.read_to_end(&mut msg).chain_err(|| read_error(&msg_path)));
+        sig_data.read_to_end(&mut msg)?;
     } else {
-        let mut msgfile = try!(File::open(&msg_path).chain_err(|| read_error(&msg_path)));
-        try!(msgfile.read_to_end(&mut msg).chain_err(|| read_error(&msg_path)));
+        let mut msgfile = File::open(&msg_path)?;
+        msgfile.read_to_end(&mut msg)?;
     }
 
     if signature.keynum != pkey.keynum {
-        return Err("signature verification failed: checked against wrong key".into());
+        return error("signature verification failed: checked against wrong key");
     }
 
     if signature.verify(&msg, &pkey) {
         println!("Signature Verified");
         Ok(())
     } else {
-        Err("signature verification failed".into())
+        error("signature verification failed")
     }
 }
 
 fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, embed: bool) -> Result<()> {
-    let seckey_file = try!(File::open(&seckey_path));
+    let seckey_file = File::open(&seckey_path)?;
     let mut seckey = BufReader::new(seckey_file);
 
-    let serialized_skey = try!(read_base64_file(&seckey_path, &mut seckey));
-    let mut skey = try!(PrivateKey::from_buf(&serialized_skey));
+    let serialized_skey = read_base64_file(&seckey_path, &mut seckey)?;
+    let mut skey = PrivateKey::from_buf(&serialized_skey)?;
 
     let rounds = skey.kdfrounds;
-    let xorkey = try!(kdf(&skey.salt, rounds, false, SECRETBYTES));
+    let xorkey = kdf(&skey.salt, rounds, false, SECRETBYTES)?;
 
     for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
         *prv = *prv ^ xor;
     }
     let skey = skey;
 
-    let mut msgfile = try!(File::open(&msg_path)
-                           .chain_err(|| read_error(&msg_path)).into());
+    let mut msgfile = File::open(&msg_path)?;
     let mut msg = vec![];
-    try!(msgfile.read_to_end(&mut msg).chain_err(|| read_error(&msg_path)));
+    msgfile.read_to_end(&mut msg)?;
 
     let signature_path = match signature_path {
         Some(path) => path,
         None => format!("{}.sig", msg_path)
     };
 
-    let sig = try!(skey.sign(&msg).chain_err(|| "Failed to sign message"));
+    let sig = skey.sign(&msg)?;
 
     let mut out = vec![];
-    try!(sig.write(&mut out).chain_err(|| "Can't write to internal buffer"));
+    sig.write(&mut out)?;
 
     let sig_comment = "signature from signify secret key";
 
-    let mut file = try!(OpenOptions::new().write(true).create_new(true).open(&signature_path));
-    try!(write_base64_file(&mut file, sig_comment, &out)
-        .chain_err(|| "Failed to write signature file"));
+    let mut file = OpenOptions::new().write(true).create_new(true).open(&signature_path)?;
+    write_base64_file(&mut file, sig_comment, &out)?;
 
     if embed {
-        try!(file.write(&msg));
+        file.write(&msg)?;
     }
 
     Ok(())
@@ -203,11 +200,10 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, e
 
 fn read_password(prompt: &str) -> Result<String> {
     let mut stdout = std::io::stdout();
-    try!(stdout.write_all(prompt.as_bytes()).chain_err(|| "Write to stdout failed"));
-    try!(stdout.flush().chain_err(|| "Flushing stdout failed"));
+    stdout.write_all(prompt.as_bytes())?;
+    stdout.flush()?;
 
-    rpassword::read_password()
-        .chain_err(|| "unable to read passphrase")
+    Ok(rpassword::read_password()?)
 }
 
 fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>> {
@@ -216,13 +212,13 @@ fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>
         return Ok(result);
     }
 
-    let passphrase = try!(read_password("passphrase: "));
+    let passphrase = read_password("passphrase: ")?;
 
     if confirm {
-        let confirm_passphrase = try!(read_password("confirm passphrase: "));
+        let confirm_passphrase = read_password("confirm passphrase: ")?;
 
         if passphrase != confirm_passphrase {
-            return Err("passwords don't match".into());
+            return error("passwords don't match");
         }
     }
 
@@ -237,16 +233,16 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     };
 
     let mut keynum = [0; KEYNUMLEN];
-    try!(SystemRandom.fill(&mut keynum).chain_err(|| "Can't fill keynum randomly"));
+    SystemRandom.fill(&mut keynum)?;
 
     let (_, keypair_bytes) = try!(Ed25519KeyPair::generate_serializable(&SystemRandom));
     let mut skey = keypair_bytes.private_key;
     let pkey = keypair_bytes.public_key;
 
     let mut salt = [0; 16];
-    try!(SystemRandom.fill(&mut salt).chain_err(|| "Can't fill salt randomly"));
+    SystemRandom.fill(&mut salt)?;
 
-    let xorkey = try!(kdf(&salt, kdfrounds, true, SECRETBYTES));
+    let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
 
     for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
         *prv = *prv ^ xor;
@@ -277,36 +273,27 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     };
 
     let mut out = vec![];
-    try!(private_key.write(&mut out).chain_err(|| "Can't write to internal buffer"));
+    private_key.write(&mut out)?;
 
     let priv_comment = format!("{} secret key", comment);
-    let mut file = try!(OpenOptions::new().write(true).create_new(true).open(&privkey_path));
-    try!(write_base64_file(&mut file, &priv_comment, &out)
-        .chain_err(|| write_error(&privkey_path)));
+    let mut file = OpenOptions::new().write(true).create_new(true).open(&privkey_path)?;
+    write_base64_file(&mut file, &priv_comment, &out)?;
 
     // Store public key
     let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
 
     let mut out = vec![];
-    try!(public_key.write(&mut out).chain_err(|| "Can't write to internal buffer"));
+    public_key.write(&mut out)?;
 
     let pub_comment = format!("{} public key", comment);
-    let mut file = try!(OpenOptions::new().write(true).create_new(true).open(&pubkey_path));
+    let mut file = OpenOptions::new().write(true).create_new(true).open(&pubkey_path)?;
     write_base64_file(&mut file, &pub_comment, &out)
-        .chain_err(|| write_error(&pubkey_path))
 }
 
 fn human(res: Result<()>) {
     match res {
         Err(e) => {
-            let mut it = e.iter();
-            let e = it.next().unwrap(); // We have an error, so we can definitely unwrap it.
-            let next_err = it.next();
-            if let Some(next_err) = next_err {
-                println!("{}: {}", e, next_err);
-            } else {
-                println!("{}", e);
-            }
+            println!("error: {}", e.cause());
 
             process::exit(1);
         },
