@@ -28,6 +28,7 @@ base64 = "0.2.0"
 docopt = "0.6"
 rustc-serialize = "0.3.19"
 rpassword = "0.2.2"
-ring = "0.4.3"
-untrusted = "0.3.1"
-error-chain = "0.5.0"
+ring = "0.12"
+untrusted = "0.5"
+failure = { git = "https://github.com/withoutboats/failure" }
+derive-fail = { git = "https://github.com/withoutboats/derive-fail" }
