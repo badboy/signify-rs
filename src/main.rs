@@ -14,7 +14,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::fs::{OpenOptions, File};
 
-use ring::rand::SystemRandom;
+use ring::rand::{SecureRandom, SystemRandom};
 use ring::signature::Ed25519KeyPair;
 use ring::digest;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
@@ -235,9 +235,14 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let mut keynum = [0; KEYNUMLEN];
     SystemRandom.fill(&mut keynum)?;
 
-    let (_, keypair_bytes) = try!(Ed25519KeyPair::generate_serializable(&SystemRandom));
-    let mut skey = keypair_bytes.private_key;
-    let pkey = keypair_bytes.public_key;
+    let pkcs = Ed25519KeyPair::generate_pkcs8(&SystemRandom)?;
+    // FIXME: WHAT A HACK
+    // Offsets of both parts of the key are known, but this is baaad to extract
+    let mut skey = [0; 32];
+    skey.copy_from_slice(&pkcs[16..48]);
+    let mut pkey = [0; 32];
+    pkey.copy_from_slice(&pkcs[53..]);
+    let pkey = pkey;
 
     let mut salt = [0; 16];
     SystemRandom.fill(&mut salt)?;

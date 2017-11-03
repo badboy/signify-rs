@@ -127,10 +127,12 @@ impl PrivateKey {
     }
 
     pub fn sign(&self, msg: &[u8]) -> Result<Signature> {
-        let keypair = try!(Ed25519KeyPair::from_bytes(&self.seckey[0..32], &self.seckey[32..]));
+        let seed = untrusted::Input::from(&self.seckey[0..32]);
+        let pubkey = untrusted::Input::from(&self.seckey[32..]);
+        let keypair = Ed25519KeyPair::from_seed_and_public_key(seed, pubkey)?;
         let signature = keypair.sign(msg);
         let mut sig = [0; 64];
-        sig.copy_from_slice(signature.as_slice());
+        sig.copy_from_slice(signature.as_ref());
         Ok(Signature {
             pkgalg: PKGALG,
             keynum: self.keynum,
