@@ -11,31 +11,44 @@ env:
     - CRATE_NAME=signify
 
 matrix:
+  fast_finish: true
+
   include:
     # Linux
     - env: TARGET=aarch64-unknown-linux-gnu
+      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=arm-unknown-linux-gnueabi
+      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=armv7-unknown-linux-gnueabihf
+      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=x86_64-unknown-linux-gnu
+      if: type = pull_request OR branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=x86_64-unknown-linux-musl
+      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
 
     # OSX
     - env: TARGET=i686-apple-darwin
       os: osx
+      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=x86_64-apple-darwin
       os: osx
+      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
 
     # other channels
     - env: TARGET=x86_64-unknown-linux-gnu
       rust: nightly
+      if: type = pull_request OR branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=x86_64-unknown-linux-gnu
       rust: beta
+      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=x86_64-apple-darwin
       os: osx
       rust: nightly
+      if: type = pull_request OR branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=x86_64-apple-darwin
       os: osx
       rust: beta
+      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
 
 before_install:
   - set -e
@@ -71,14 +84,6 @@ deploy:
 cache: cargo
 before_cache:
   - chmod -R a+r $HOME/.cargo
-
-branches:
-  only:
-    # release tags
-    - /^v\d+\.\d+\.\d+.*$/
-    - master
-    - staging
-    - trying
 
 notifications:
   email:
