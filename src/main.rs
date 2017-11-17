@@ -7,7 +7,6 @@ extern crate rpassword;
 extern crate ring;
 extern crate untrusted;
 extern crate failure;
-#[macro_use] extern crate derive_fail;
 
 use std::process;
 use std::io::prelude::*;
@@ -81,26 +80,26 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
     let len = reader.read_line(&mut comment_line)?;
 
     if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
-        return error(format!("invalid comment in {}; must start with '{}'", file_display, COMMENTHDR));
+        return Err(err_msg(format!("invalid comment in {}; must start with '{}'", file_display, COMMENTHDR)));
     }
 
     if &comment_line[len-1..len] != "\n" {
-        return error(format!("missing new line after comment in {}", file_display));
+        return Err(err_msg(format!("missing new line after comment in {}", file_display)));
     }
 
     if len > COMMENTHDRLEN + COMMENTMAXLEN {
-        return error("comment too long");
+        return Err(err_msg("comment too long"));
     }
 
     let mut base64_line = String::new();
     let len = reader.read_line(&mut base64_line)?;
 
     if len == 0 {
-        return error(format!("missing line in {}", file_display));
+        return Err(err_msg(format!("missing line in {}", file_display)));
     }
 
     if &base64_line[len-1..len] != "\n" {
-        return error(format!("missing new line after comment in {}", file_display));
+        return Err(err_msg(format!("missing new line after comment in {}", file_display)));
     }
 
     let base64_line = &base64_line[0..len-1];
@@ -108,7 +107,7 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
     let data = base64::decode(base64_line)?;
 
     if &data[0..2] != PKGALG {
-        return error(format!("unsupported file {}", file_display));
+        return Err(err_msg(format!("unsupported file {}", file_display)));
     }
 
     Ok(data)
@@ -146,14 +145,14 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>,
     }
 
     if signature.keynum != pkey.keynum {
-        return error("signature verification failed: checked against wrong key");
+        return Err(err_msg("signature verification failed: checked against wrong key"));
     }
 
     if signature.verify(&msg, &pkey) {
         println!("Signature Verified");
         Ok(())
     } else {
-        error("signature verification failed")
+        Err(err_msg("signature verification failed"))
     }
 }
 
@@ -218,7 +217,7 @@ fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>
         let confirm_passphrase = read_password("confirm passphrase: ")?;
 
         if passphrase != confirm_passphrase {
-            return error("passwords don't match");
+            return Err(err_msg("passwords don't match"));
         }
     }
 

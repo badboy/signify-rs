@@ -30,5 +30,4 @@ rustc-serialize = "0.3.19"
 rpassword = "0.2.2"
 ring = "0.12"
 untrusted = "0.5"
-failure = { git = "https://github.com/withoutboats/failure" }
-derive-fail = { git = "https://github.com/withoutboats/derive-fail" }
+failure = "0.1"
