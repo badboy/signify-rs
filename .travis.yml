@@ -1,6 +1,12 @@
 language: rust
 sudo: false
 
+branches:
+  only:
+    - staging
+    - trying
+    - master
+
 os:
   - linux
   - osx

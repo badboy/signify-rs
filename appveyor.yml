@@ -11,5 +11,9 @@ environment:
   matrix:
     - TOOLCHAIN_VERSION: 14.0
       RUST: 1.21.0
+branches:
+  only:
+    - staging
+    - master
 
 build_script: mk/appveyor.bat
