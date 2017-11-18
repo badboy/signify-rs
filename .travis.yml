@@ -26,10 +26,6 @@ matrix:
     - env: TARGET=x86_64-unknown-linux-musl
       if: branch = staging OR branch = trying OR branch =~ /^v\d+/
 
-    # OSX
-    - env: TARGET=i686-apple-darwin
-      os: osx
-      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
     - env: TARGET=x86_64-apple-darwin
       os: osx
       if: type = pull_request OR branch = staging OR branch = trying OR branch =~ /^v\d+/
