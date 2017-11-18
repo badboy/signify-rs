@@ -63,10 +63,6 @@ before_deploy:
   - sh ci/before_deploy.sh
 
 deploy:
-  # TODO update `api_key.secure`
-  # - Create a `public_repo` GitHub token. Go to: https://github.com/settings/tokens/new
-  # - Encrypt it: `travis encrypt 0123456789012345678901234567890123456789
-  # - Paste the output down here
   api_key:
     secure: oakncmwVno3XQ5HU82FrHh6QXzbVt7GU9+pYryx5UX4L6qNrqcPFQjubOPZBhtDaljtgobwOgeQ03bsLwS68Z95imEPW5anWAMF0E4TClplGZBmGvrsS+1vLqoWnNS6+IecE1IwKRaZNqSya1dxbakl/tNqX0CMRwmZYTH+QOEFYR6Bd51yePc3Jdotg8LUFAbMaHBbRAsTIe6HGSf4VmImS1ouYDpgWiRYjmdCTBNBDQoaNQH2llx5MUcPpRbWlYT0xTKboJverj1xbI+xnSbw2ET3MHfk1a1J9F96CoyeQx9LHwgQC+NbIEf873NGaMSFKcKpQqeLh5OsgdknVtISN8OPrnGWmmm7fU/y9ke/3P8C41iV636w6E6W5ZWyWCowAbv2TEtnGf9ADBJDNwY4abpozSwULl52jSDg4jE6Mu59ZZ5NRzNQ1Wpnj1aExAEKw+N959UGt2b0UygKgP5KyRN1rZYAOPDaehy3TeaUC5gdjEro2teI79eFNQpJgF25/bxikzbxnDPvYKcHQo6XYyGU1hOyNnNe2JkOChVctEgQmO13iGuRDzDxfDf8iC5V8i3Cx11Kzt8qaW5WZK2rlluZZL2Gyg1wl7y5pjCmv6s2zCh1YAWwFw9AElPH3YRhNAd631cdJwQ2qk57DAnGMIGARMP2DHpoMORSho4Y=
   file_glob: true
