@@ -41,10 +41,6 @@ matrix:
       os: osx
       rust: nightly
       if: type = pull_request OR branch = staging OR branch = trying OR branch =~ /^v\d+/
-    - env: TARGET=x86_64-apple-darwin
-      os: osx
-      rust: beta
-      if: branch = staging OR branch = trying OR branch =~ /^v\d+/
 
 before_install:
   - set -e
