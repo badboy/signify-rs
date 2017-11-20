@@ -20,7 +20,7 @@ main() {
     cross rustc --bin signify --target $TARGET --release -- -C lto
 
     cp target/$TARGET/release/signify $stage/
-    cp README $stage/
+    cp README.md $stage/
 
     cd $stage
     tar czf $src/$CRATE_NAME-$TRAVIS_TAG-$TARGET.tar.gz *
