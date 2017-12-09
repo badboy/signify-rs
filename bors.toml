@@ -1,0 +1,7 @@
+# Gate on Travis CI and AppVeyor
+status = [
+  "continuous-integration/travis-ci/push",
+  "continuous-integration/appveyor/branch",
+]
+# Set bors's timeout to 4 hours
+timeout-sec = 14400
