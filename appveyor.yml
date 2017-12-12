@@ -63,6 +63,7 @@ branches:
     # Release tags
     - /^v\d+\.\d+\.\d+.*$/
     - master
+    - staging
 
 notifications:
   - provider: Email
