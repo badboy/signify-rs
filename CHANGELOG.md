@@ -1,3 +1,8 @@
+# v0.4.0 (2017-12-12)
+
+* Support embedded signatures
+* Auto-build binaries
+
 # v0.3.0 (2016-09-27)
 
 * Switched to *ring* for the crypto part
