@@ -15,6 +15,10 @@ cleanup() {
   rm -f $PUB $PRIV $MSG $MSG.sig || true
 }
 
+cargo_run() {
+  cargo run -q $BUILD_MODE -- $*
+}
+
 assert_false() {
     set +e
     $*
@@ -26,29 +30,31 @@ assert_false() {
 trap cleanup SIGHUP SIGINT SIGTERM EXIT
 
 echo "==> Message modified"
-cargo run -q -- -G -n -p $PUB -s $PRIV
+cargo_run -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
-cargo run -q -- -S -s $PRIV -m $MSG -x ${MSG}.sig
+cargo_run -S -s $PRIV -m $MSG -x ${MSG}.sig
 head -c 1 /dev/urandom >> $MSG
-assert_false cargo run -q -- -V -p $PUB -m $MSG -x ${MSG}.sig
+assert_false cargo_run -V -p $PUB -m $MSG -x ${MSG}.sig
 cp ${MSG}.sig ${MSG}.sig.2
 cleanup
 
 echo "==> Signature modified"
-cargo run -q -- -G -n -p $PUB -s $PRIV
+cargo_run -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
-cargo run -q -- -S -s $PRIV -m $MSG -x ${MSG}.sig
+cargo_run -S -s $PRIV -m $MSG -x ${MSG}.sig
 mv ${MSG}.sig.2 ${MSG}.sig
-assert_false cargo run -q -- -V -p $PUB -m $MSG -x ${MSG}.sig
+assert_false cargo_run -V -p $PUB -m $MSG -x ${MSG}.sig
 cleanup
 
 echo "==> Embedded Message modified"
-cargo run -q -- -G -n -p $PUB -s $PRIV
+cargo_run -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
-cargo run -q -- -S -e -s $PRIV -m $MSG
+cargo_run -S -e -s $PRIV -m $MSG
 rm $MSG
 head -c 1 /dev/urandom >> ${MSG}.sig
-assert_false cargo run -q -- -V -e -p $PUB -m $MSG
+assert_false cargo_run -V -e -p $PUB -m $MSG
 cleanup
+
+printf "\n\033[1;37m\\o/ \033[0;32mAll tests passed without errors!\033[0m\n"
 
 exit 0

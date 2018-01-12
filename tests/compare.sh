@@ -17,11 +17,19 @@ cleanup() {
   rm -f $PUB $PRIV $MSG $MSG.sig || true
 }
 
+cargo_run() {
+  cargo run -q $BUILD_MODE -- $*
+}
+
 trap cleanup SIGHUP SIGINT SIGTERM EXIT
 
 git clone $SIGNIFY_REPO || true
 pushd signify
+git reset --hard
 git pull
+git submodule update --init
+make clean
+rm -rf libbsd-*
 make \
   BUNDLED_LIBBSD=1 \
   BUNDLED_LIBBSD_VERIFY_GPG=0 \
@@ -32,45 +40,47 @@ popd
 SIGNIFY=$(pwd)/$TMPDIR/signify/signify
 
 echo "==> Testing Rust Generate/Sign, C Verify"
-cargo run -q -- -G -n -p $PUB -s $PRIV
+cargo_run -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
-cargo run -q -- -S -s $PRIV -m $MSG -x ${MSG}.sig
+cargo_run -S -s $PRIV -m $MSG -x ${MSG}.sig
 $SIGNIFY -V -p $PUB -m $MSG -x ${MSG}.sig
 cleanup
 
 echo "==> Testing Rust Generate, C Sign/Verify"
-cargo run -q -- -G -n -p $PUB -s $PRIV
+cargo_run -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
 $SIGNIFY -S -s $PRIV -m $MSG -x ${MSG}.sig
 $SIGNIFY -V -p $PUB -m $MSG -x ${MSG}.sig
 cleanup
 
 echo "==> Testing Rust Generate, C Sign, Rust Verify"
-cargo run -q -- -G -n -p $PUB -s $PRIV
+cargo_run -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
 $SIGNIFY -S -s $PRIV -m $MSG -x ${MSG}.sig
-cargo run -q -- -V -p $PUB -m $MSG -x ${MSG}.sig
+cargo_run -V -p $PUB -m $MSG -x ${MSG}.sig
 cleanup
 
 echo "==> Testing C Generate/Sign, Rust Verify"
 $SIGNIFY -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
 $SIGNIFY -S -s $PRIV -m $MSG -x ${MSG}.sig
-cargo run -q -- -V -p $PUB -m $MSG -x ${MSG}.sig
+cargo_run -V -p $PUB -m $MSG -x ${MSG}.sig
 cleanup
 
 echo "==> Testing C Generate, Rust Sign/Verify"
 $SIGNIFY -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
-cargo run -q -- -S -s $PRIV -m $MSG -x ${MSG}.sig
-cargo run -q -- -V -p $PUB -m $MSG -x ${MSG}.sig
+cargo_run -S -s $PRIV -m $MSG -x ${MSG}.sig
+cargo_run -V -p $PUB -m $MSG -x ${MSG}.sig
 cleanup
 
 echo "==> Testing C Generate, Rust Sign, C Verify"
 $SIGNIFY -G -n -p $PUB -s $PRIV
 head -c 100 /dev/urandom > $MSG
-cargo run -q -- -S -s $PRIV -m $MSG -x ${MSG}.sig
+cargo_run -S -s $PRIV -m $MSG -x ${MSG}.sig
 $SIGNIFY -V -p $PUB -m $MSG -x ${MSG}.sig
 cleanup
+
+printf "\n\033[1;37m\\o/ \033[0;32mAll tests passed without errors!\033[0m\n"
 
 exit 0
