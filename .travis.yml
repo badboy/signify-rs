@@ -46,6 +46,7 @@ matrix:
 
   allow_failures:
       - rust: nightly
+      - rust: beta
 
 before_install:
   - set -e
