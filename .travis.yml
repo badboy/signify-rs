@@ -10,6 +10,8 @@ env:
   global:
     - CRATE_NAME=signify
 
+rust:
+
 matrix:
   fast_finish: true
 
@@ -41,6 +43,10 @@ matrix:
       os: osx
       rust: nightly
       if: type = pull_request OR branch = staging OR branch = trying OR branch =~ /^v\d+/
+
+  allow_failures:
+      - rust: nightly
+      - rust: beta
 
 before_install:
   - set -e

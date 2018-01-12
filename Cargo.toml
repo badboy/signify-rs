@@ -13,12 +13,14 @@ homepage = "https://github.com/badboy/signify-rs"
 repository = "https://github.com/badboy/signify-rs"
 
 include = [
-  "Cargo.toml",
-  "README*",
-  "LICENSE*",
-  "src/**/*",
-  "tests/**/*",
-  "examples/**/*",
+  "/Cargo.toml",
+  "/README*",
+  "/LICENSE*",
+  "/src/**/*",
+  "/tests/compare.sh",
+  "/tests/full-cycle.sh",
+  "/tests/integration.sh",
+  "/examples/**/*",
 ]
 
 [dependencies]
