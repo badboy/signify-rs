@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e 
+set -e
 
 pushd $(dirname $0) > /dev/null
 SCRIPTPATH=$(pwd)
@@ -28,9 +28,8 @@ pushd signify
 git reset --hard
 git pull
 git submodule update --init
-make clean
 rm -rf libbsd-*
-make \
+make clean all \
   BUNDLED_LIBBSD=1 \
   BUNDLED_LIBBSD_VERIFY_GPG=0 \
   LIBBSD_LDFLAGS="-lrt" \
