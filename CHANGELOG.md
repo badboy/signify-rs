@@ -1,3 +1,7 @@
+# v0.4.1 (2018-01-11)
+
+* Exclude temporary files from crate
+
 # v0.4.0 (2017-12-12)
 
 * Support embedded signatures
