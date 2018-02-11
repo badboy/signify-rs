@@ -13,6 +13,10 @@ main() {
 
     ./tests/full-cycle.sh
     ./tests/integration.sh
+
+    if [ "$TARGET" = "x86_64-unknown-linux-gnu" ]; then
+      ./tests/compare.sh
+    fi
 }
 
 # we don't run the "test phase" when doing deploys

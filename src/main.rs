@@ -2,7 +2,8 @@ extern crate crypto;
 extern crate base64;
 extern crate byteorder;
 extern crate docopt;
-extern crate rustc_serialize;
+#[macro_use]
+extern crate serde_derive;
 extern crate rpassword;
 extern crate ring;
 extern crate untrusted;
@@ -50,7 +51,7 @@ Options:
 ";
 
 #[allow(non_snake_case)]
-#[derive(Debug, RustcDecodable)]
+#[derive(Debug, Deserialize)]
 struct Args {
     flag_G: bool,
     flag_S: bool,
@@ -307,7 +308,7 @@ fn human(res: Result<()>) {
 
 fn main() {
     let args: Args = Docopt::new(USAGE)
-        .and_then(|d| d.decode())
+        .and_then(|d| d.deserialize())
         .unwrap_or_else(|e| e.exit());
 
     if args.flag_V {
