@@ -6,8 +6,8 @@ use errors::*;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use ring::signature::{self, Ed25519KeyPair};
-use untrusted;
+use sha2::Sha512;
+use ed25519_dalek::{self, Keypair};
 
 pub const KEYNUMLEN : usize = 8;
 pub const PUBLICBYTES : usize = 32;
@@ -127,16 +127,12 @@ impl PrivateKey {
     }
 
     pub fn sign(&self, msg: &[u8]) -> Result<Signature> {
-        let seed = untrusted::Input::from(&self.seckey[0..32]);
-        let pubkey = untrusted::Input::from(&self.seckey[32..]);
-        let keypair = Ed25519KeyPair::from_seed_and_public_key(seed, pubkey)?;
-        let signature = keypair.sign(msg);
-        let mut sig = [0; 64];
-        sig.copy_from_slice(signature.as_ref());
+        let keypair = Keypair::from_bytes(&self.seckey)?;
+        let signature = keypair.sign::<Sha512>(msg);
         Ok(Signature {
             pkgalg: PKGALG,
             keynum: self.keynum,
-            sig: sig
+            sig: signature.to_bytes(),
         })
     }
 }
@@ -171,11 +167,9 @@ impl Signature {
     }
 
     pub fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        let public_key = untrusted::Input::from(&pkey.publkey);
-        let sig = untrusted::Input::from(&self.sig);
-        let msg = untrusted::Input::from(msg);
+        let public_key = ed25519_dalek::PublicKey::from_bytes(&pkey.publkey).unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(&self.sig).unwrap();
 
-        signature::verify(&signature::ED25519,
-                          public_key, msg, sig).is_ok()
+        public_key.verify::<Sha512>(msg, &sig)
     }
 }

@@ -9,15 +9,21 @@ extern crate ring;
 extern crate untrusted;
 extern crate failure;
 
+extern crate rand;
+extern crate sha2;
+extern crate ed25519_dalek;
+
 use std::process;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::fs::{OpenOptions, File};
 
-use ring::rand::{SecureRandom, SystemRandom};
-use ring::signature::Ed25519KeyPair;
-use ring::digest;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
+
+use rand::Rng;
+use rand::OsRng;
+use sha2::{Sha512, Digest};
+use ed25519_dalek::Keypair;
 
 use docopt::Docopt;
 
@@ -232,20 +238,16 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
         None    => "signify".into()
     };
 
+    let mut cspring: OsRng = OsRng::new().unwrap();
     let mut keynum = [0; KEYNUMLEN];
-    SystemRandom.fill(&mut keynum)?;
+    cspring.fill_bytes(&mut keynum);
 
-    let pkcs = Ed25519KeyPair::generate_pkcs8(&SystemRandom)?;
-    // FIXME: WHAT A HACK
-    // Offsets of both parts of the key are known, but this is baaad to extract
-    let mut skey = [0; 32];
-    skey.copy_from_slice(&pkcs[16..48]);
-    let mut pkey = [0; 32];
-    pkey.copy_from_slice(&pkcs[53..]);
-    let pkey = pkey;
+    let keypair: Keypair = Keypair::generate::<Sha512>(&mut cspring);
+    let pkey = keypair.public.to_bytes();
+    let mut skey = keypair.secret.to_bytes();
 
     let mut salt = [0; 16];
-    SystemRandom.fill(&mut salt)?;
+    cspring.fill_bytes(&mut salt);
 
     let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
 
@@ -256,14 +258,14 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     // signify stores the extended key as the private key,
     // that is the 32 byte of the secret key, followed by the 32 byte of the public key,
     // summing up to 64 byte.
-    //
-    //  *ring* separates them, so we need to stick them together again.
     let mut complete_key = [0; 64];
-    complete_key[0..32].copy_from_slice(&skey[0..32]);
+    complete_key[0..32].copy_from_slice(&skey);
     complete_key[32..].copy_from_slice(&pkey);
 
     // Store private key
-    let digest = digest::digest(&digest::SHA512, &complete_key);
+    let mut hasher = Sha512::default();
+    hasher.input(&complete_key);
+    let digest = hasher.result();
     let mut checksum = [0; 8];
     checksum.copy_from_slice(&digest.as_ref()[0..8]);
 
