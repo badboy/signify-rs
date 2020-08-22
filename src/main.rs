@@ -1,17 +1,10 @@
 use anyhow::anyhow;
 use anyhow::Result;
-
+use argh::FromArgs;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
-
-use docopt::Docopt;
-
 use ed25519_dalek::Keypair;
-
 use rand::rngs::OsRng;
 use rand_core::RngCore;
-
-use serde::Deserialize;
-
 use sha2::{Digest, Sha512};
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
@@ -20,44 +13,52 @@ use std::process;
 mod structs;
 use structs::*;
 
-const USAGE: &str = "
-signify-rs
-
-Usage:
-  signify -h
-  signify -G [-n] [-c <comment>] -p <pubkey> -s <seckey>
-  signify -S [-e] [-x <sigfile>] -s <seckey> -m <message>
-  signify -V [-e] [-x <sigfile>] -p <pubkey> -m <message>
-
-Options:
-  -h --help     Show this screen.
-  -c <comment>  Specify the comment to be added during key generation.
-  -e            When signing, embed the message after the signature. When verifying extract the message from
-                the signature.
-  -m <message>  When signing, the file containing the message to sign.  When verifying, the file containing the
-                message to verify.  When verifying with -e, the file to create.
-  -n            Do not ask for a passphrase during key generation. Otherwise, signify will prompt the user for a
-                passphrase to protect the secret key.
-  -p <pubkey>   Public key produced by -G, and used by -V to check a signature.
-  -s <seckey>   Secret (private) key produced by -G, and used by -S to sign a message.
-  -x <sigfile>  The signature file to create or verify.  The default is <message>.sig.
-";
-
-#[allow(non_snake_case)]
-#[derive(Debug, Deserialize)]
+#[derive(FromArgs, Debug)]
+/// signify-rs -- create cryptographic signatures for files and verify them
 struct Args {
-    flag_G: bool,
-    flag_S: bool,
-    flag_V: bool,
+    /// generate a new key pair. Keynames should follow the convention of keyname.pub
+    /// and keyname.sec for the public and secret keys, respectively.
+    #[argh(switch, short = 'G')]
+    generate: bool,
 
-    flag_x: Option<String>,
-    flag_c: Option<String>,
-    flag_e: bool,
+    /// sign the specified message file and create a signature.
+    #[argh(switch, short = 'S')]
+    sign: bool,
 
-    flag_p: String,
-    flag_s: String,
-    flag_m: String,
-    flag_n: bool,
+    /// verify the message and signature match.
+    #[argh(switch, short = 'V')]
+    verify: bool,
+
+    /// the signature file to create or verify. The default is message.sig.
+    #[argh(option, short = 'x')]
+    signature_file: Option<String>,
+
+    /// specify the comment to be added during key generation.
+    #[argh(option, short = 'c')]
+    comment: Option<String>,
+
+    /// when signing, embed the message after the signature. When verifying, extract the message from the signature.
+    /// (This requires that the signature was created using -e and creates a new message file as output.)
+    #[argh(switch, short = 'e')]
+    embed: bool,
+
+    /// public key produced by -G, and used by -V to check a signature.
+    #[argh(option, short = 'p')]
+    public_key: String,
+
+    /// secret (private) key produced by -G, and used by -S to sign a message.
+    #[argh(option, short = 's')]
+    secret_key: String,
+
+    /// when signing, the file containing the message to sign. When verifying, the file containing the message to verify.
+    /// when verifying with -e, the file to create.
+    #[argh(option, short = 'm')]
+    message: String,
+
+    // when generating a key pair, do not ask for a passphrase. Otherwise, signify will prompt the user for a passphrase to protect the secret key.
+    /// when signing with -z, store a zero time stamp in the gzip(1) header.
+    #[argh(switch, short = 'n')]
+    no_passphrase: bool,
 }
 
 fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
@@ -68,23 +69,23 @@ fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
 
     Ok(())
 }
-
 fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Result<Vec<u8>> {
     let mut comment_line = String::new();
     let len = reader.read_line(&mut comment_line)?;
 
     if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
-        return Err(anyhow!(format!(
+        return Err(anyhow!(
             "invalid comment in {}; must start with '{}'",
-            file_display, COMMENTHDR
-        )));
+            file_display,
+            COMMENTHDR
+        ));
     }
 
     if &comment_line[len - 1..len] != "\n" {
-        return Err(anyhow!(format!(
+        return Err(anyhow!(
             "missing new line after comment in {}",
             file_display
-        )));
+        ));
     }
 
     if len > COMMENTHDRLEN + COMMENTMAXLEN {
@@ -95,14 +96,14 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
     let len = reader.read_line(&mut base64_line)?;
 
     if len == 0 {
-        return Err(anyhow!(format!("missing line in {}", file_display)));
+        return Err(anyhow!("missing line in {}", file_display));
     }
 
     if &base64_line[len - 1..len] != "\n" {
-        return Err(anyhow!(format!(
+        return Err(anyhow!(
             "missing new line after comment in {}",
             file_display
-        )));
+        ));
     }
 
     let base64_line = &base64_line[0..len - 1];
@@ -110,7 +111,7 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
     let data = base64::decode(base64_line)?;
 
     if data[0..2] != PKGALG {
-        return Err(anyhow!(format!("unsupported file {}", file_display)));
+        return Err(anyhow!("unsupported file {}", file_display));
     }
 
     Ok(data)
@@ -306,7 +307,7 @@ fn generate(
     let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
 
     let mut out = vec![];
-    public_key.write(&mut out);
+    public_key.write(&mut out)?;
 
     let pub_comment = format!("{} public key", comment);
     let mut file = OpenOptions::new()
@@ -326,16 +327,29 @@ fn human(res: Result<()>) {
 }
 
 fn main() {
-    let args: Args = Docopt::new(USAGE)
-        .and_then(|d| d.deserialize())
-        .unwrap_or_else(|e| e.exit());
+    let args: Args = argh::from_env();
 
-    if args.flag_V {
-        human(verify(args.flag_p, args.flag_m, args.flag_x, args.flag_e));
-    } else if args.flag_G {
-        let rounds = if args.flag_n { 0 } else { 42 };
-        human(generate(args.flag_p, args.flag_s, args.flag_c, rounds));
-    } else if args.flag_S {
-        human(sign(args.flag_s, args.flag_m, args.flag_x, args.flag_e));
+    if args.verify {
+        human(verify(
+            args.public_key,
+            args.message,
+            args.signature_file,
+            args.embed,
+        ));
+    } else if args.generate {
+        let rounds = if args.no_passphrase { 0 } else { 42 };
+        human(generate(
+            args.public_key,
+            args.secret_key,
+            args.comment,
+            rounds,
+        ));
+    } else if args.sign {
+        human(sign(
+            args.secret_key,
+            args.message,
+            args.signature_file,
+            args.embed,
+        ));
     }
 }

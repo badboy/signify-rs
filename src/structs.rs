@@ -40,6 +40,7 @@ pub struct Signature {
 }
 
 impl PublicKey {
+    #[must_use]
     pub fn with_key_and_keynum(key: [u8; PUBLICBYTES], keynum: [u8; KEYNUMLEN]) -> PublicKey {
         PublicKey {
             pkgalg: PKGALG,
@@ -48,10 +49,12 @@ impl PublicKey {
         }
     }
 
-    pub fn write<W: Write>(&self, mut w: W) {
-        w.write_all(&self.pkgalg).unwrap();
-        w.write_all(&self.keynum).unwrap();
-        w.write_all(&self.publkey).unwrap();
+    pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
+        w.write_all(&self.pkgalg)?;
+        w.write_all(&self.keynum)?;
+        w.write_all(&self.publkey)?;
+
+        Ok(())
     }
 
     pub fn from_buf(buf: &[u8]) -> Result<PublicKey> {
@@ -160,6 +163,7 @@ impl Signature {
         })
     }
 
+    #[must_use]
     pub fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
         let public_key = ed25519_dalek::PublicKey::from_bytes(&pkey.publkey).unwrap();
         let sig = ed25519_dalek::Signature::new(self.sig);
