@@ -2,6 +2,7 @@
 name = "signify"
 version = "0.4.1"
 authors = ["Jan-Erik Rediger <janerik@fnordig.de>"]
+edition = "2018"
 
 keywords = [ "cryptography", "security" ]
 description = "Create cryptographic signatures for files and verify them"
@@ -26,14 +27,15 @@ include = [
 [dependencies]
 byteorder = "1.2"
 rust-crypto = "0.2.36"
-base64 = "0.9.0"
-docopt = "0.8"
-rpassword = "2"
-ring = "0.12.1"
-untrusted = "0.5"
-failure = "0.1"
+base64 = "0.12.3"
+docopt = "1.1.0"
+rpassword = "5"
+ring = "0.17.0-alpha.4"
+untrusted = "0.7.1"
 serde = "1.0"
 serde_derive = "1.0"
-ed25519-dalek = "0.6"
-rand = "0.4"
-sha2 = "0.7"
+ed25519-dalek = "1.0"
+rand = { version = "0.7.2", features = ["getrandom"]  }
+rand_core = "*"
+sha2 = "0.9.1"
+anyhow = "*"
