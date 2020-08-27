@@ -6,12 +6,11 @@ use ed25519_dalek::Keypair;
 use rand::rngs::OsRng;
 use rand_core::RngCore;
 use sha2::{Digest, Sha512};
+use signify_lib::*;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::process;
-mod structs;
-use structs::*;
 
 #[derive(FromArgs, Debug)]
 /// signify-rs -- create cryptographic signatures for files and verify them
