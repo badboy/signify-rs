@@ -1,8 +1,11 @@
 use anyhow::anyhow;
 use anyhow::Result;
+use bcrypt_pbkdf::bcrypt_pbkdf;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-
 use ed25519_dalek::{self, Keypair, Signer};
+use rand::RngCore;
+use rand_core::OsRng;
+use sha2::{Digest, Sha512};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::{BufWriter, Cursor};
@@ -55,9 +58,7 @@ impl PublicKey {
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
         w.write_all(&self.pkgalg)?;
         w.write_all(&self.keynum)?;
-        w.write_all(&self.publkey)?;
-
-        Ok(())
+        w.write_all(&self.publkey).map_err(std::convert::Into::into)
     }
 
     pub fn from_buf(buf: &[u8]) -> Result<PublicKey> {
@@ -89,9 +90,7 @@ impl PrivateKey {
         w.write_all(&self.salt)?;
         w.write_all(&self.checksum)?;
         w.write_all(&self.keynum)?;
-        w.write_all(&self.seckey)?;
-
-        Ok(())
+        w.write_all(&self.seckey).map_err(std::convert::Into::into)
     }
 
     pub fn from_buf(buf: &[u8]) -> Result<PrivateKey> {
@@ -141,9 +140,7 @@ impl Signature {
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
         w.write_all(&self.pkgalg)?;
         w.write_all(&self.keynum)?;
-        w.write_all(&self.sig)?;
-
-        Ok(())
+        w.write_all(&self.sig).map_err(std::convert::Into::into)
     }
 
     pub fn from_buf(buf: &[u8]) -> Result<Signature> {
@@ -175,23 +172,16 @@ impl Signature {
     }
 }
 
-pub fn read_base64<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Result<Vec<u8>> {
+pub fn read_base64(raw_data: &mut BufReader<impl Read>) -> Result<Vec<u8>> {
     let mut comment_line = String::new();
-    let len = reader.read_line(&mut comment_line)?;
+    let len = raw_data.read_line(&mut comment_line)?;
 
     if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
-        return Err(anyhow!(
-            "invalid comment in {}; must start with '{}'",
-            file_display,
-            COMMENTHDR
-        ));
+        return Err(anyhow!("invalid comment; must start with '{}'", COMMENTHDR));
     }
 
     if &comment_line[len - 1..len] != "\n" {
-        return Err(anyhow!(
-            "missing new line after comment in {}",
-            file_display
-        ));
+        return Err(anyhow!("missing new line after comment",));
     }
 
     if len > COMMENTHDRLEN + COMMENTMAXLEN {
@@ -199,17 +189,14 @@ pub fn read_base64<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Re
     }
 
     let mut base64_line = String::new();
-    let len = reader.read_line(&mut base64_line)?;
+    let len = raw_data.read_line(&mut base64_line)?;
 
     if len == 0 {
-        return Err(anyhow!("missing line in {}", file_display));
+        return Err(anyhow!("missing line",));
     }
 
     if &base64_line[len - 1..len] != "\n" {
-        return Err(anyhow!(
-            "missing new line after comment in {}",
-            file_display
-        ));
+        return Err(anyhow!("missing new line after comment"));
     }
 
     let base64_line = &base64_line[0..len - 1];
@@ -217,18 +204,169 @@ pub fn read_base64<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Re
     let data = base64::decode(base64_line)?;
 
     if data[0..2] != PKGALG {
-        return Err(anyhow!("unsupported file {}", file_display));
+        return Err(anyhow!("unsupported file"));
     }
 
     Ok(data)
 }
-
-pub fn write_base64<W: Write>(file: &mut BufWriter<W>, comment: &str, buf: &[u8]) -> Result<()> {
+pub fn write_base64(file: &mut BufWriter<impl Write>, comment: &str, buf: &[u8]) -> Result<()> {
     write!(file, "{}", COMMENTHDR)?;
     writeln!(file, "{}", comment)?;
     let out = base64::encode(buf);
     writeln!(file, "{}", out)?;
 
-    file.flush()?;
-    Ok(())
+    file.flush().map_err(std::convert::Into::into)
+}
+
+/// verify a message
+pub fn verify(
+    mut pubkey: BufReader<impl Read>,
+    mut sig_buff: BufReader<impl Read>,
+    mut message: BufReader<impl Read>,
+    embed: bool,
+) -> Result<()> {
+    // TODO: Better error message?
+    let serialized_pkey = read_base64(&mut pubkey)?;
+    let pkey = PublicKey::from_buf(&serialized_pkey)?;
+
+    // TODO: Better error message?
+    let serialized_signature = read_base64(&mut sig_buff)?;
+    let signature = Signature::from_buf(&serialized_signature)?;
+
+    let mut msg = vec![];
+
+    if embed {
+        sig_buff.read_to_end(&mut msg)?
+    } else {
+        message.read_to_end(&mut msg)?
+    };
+
+    if signature.keynum != pkey.keynum {
+        return Err(anyhow!(
+            "signature verification failed: checked against wrong key",
+        ));
+    }
+
+    if signature.verify(&msg, &pkey) {
+        println!("Signature Verified");
+        Ok(())
+    } else {
+        Err(anyhow!("signature verification failed"))
+    }
+}
+
+/// sign a message
+pub fn sign(
+    mut seckey: BufReader<impl Read>,
+    message: &[u8],
+    mut signature: &mut BufWriter<impl Write>,
+    embed: bool,
+    password_reader: fn(bool) -> Result<String>,
+) -> Result<()> {
+    let serialized_skey = read_base64(&mut seckey)?;
+    let mut skey = PrivateKey::from_buf(&serialized_skey)?;
+
+    let rounds = skey.kdfrounds;
+    let xorkey = if rounds > 0 {
+        let passphrase = password_reader(false)?;
+
+        let mut xorkey = vec![0; SECRETBYTES];
+        bcrypt_pbkdf(&passphrase, &skey.salt, rounds, &mut xorkey)?;
+        xorkey
+    } else {
+        vec![0; SECRETBYTES]
+    };
+
+    for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
+        *prv ^= xor;
+    }
+
+    let sig = skey.sign(&message)?;
+
+    let mut out = vec![];
+    sig.write(&mut out)?;
+    // TODO avoid this buffering into out?
+    let sig_comment = "signature from signify secret key";
+    write_base64(&mut signature, sig_comment, &out)?;
+
+    if embed {
+        signature.write_all(&message)?;
+    }
+    signature.flush().map_err(std::convert::Into::into) // needed after write_all?
+}
+
+/// generate a new keypair
+pub fn generate(
+    mut pubkey: &mut BufWriter<impl Write>,
+    mut private_key_file: &mut BufWriter<impl Write>,
+    comment: Option<String>,
+    kdfrounds_and_passphrase: Option<(std::num::NonZeroU32, String)>,
+) -> Result<()> {
+    let comment = match comment {
+        Some(s) => s,
+        None => "signify".into(),
+    };
+
+    let mut keynum = [0; KEYNUMLEN];
+    OsRng.fill_bytes(&mut keynum);
+
+    let keypair: Keypair = Keypair::generate(&mut OsRng);
+    let pkey = keypair.public.to_bytes();
+    let mut skey = keypair.secret.to_bytes();
+
+    let mut salt = [0; 16];
+    OsRng.fill_bytes(&mut salt);
+
+    let (xorkey, kdfrounds): (_, u32) =
+        if let Some((kdfrounds, passphrase)) = kdfrounds_and_passphrase {
+            let mut xorkey = vec![0; SECRETBYTES];
+            bcrypt_pbkdf(&passphrase, &salt, kdfrounds.into(), &mut xorkey)?;
+            (xorkey, kdfrounds.into())
+        } else {
+            (vec![0; SECRETBYTES], 0)
+        };
+
+    for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
+        *prv ^= xor;
+    }
+
+    // signify stores the extended key as the private key,
+    // that is the 32 byte of the secret key, followed by the 32 byte of the public key,
+    // summing up to 64 byte.
+    let mut complete_key = [0; 64];
+    complete_key[0..32].copy_from_slice(&skey);
+    complete_key[32..].copy_from_slice(&pkey);
+
+    // Store private key
+    let mut hasher = Sha512::default();
+    hasher.update(&complete_key);
+    let digest = hasher.finalize();
+    let mut checksum = [0; 8];
+    checksum.copy_from_slice(&digest.as_ref()[0..8]);
+
+    let private_key = PrivateKey {
+        pkgalg: PKGALG,
+        kdfalg: KDFALG,
+        kdfrounds,
+        salt,
+        checksum,
+        keynum,
+        seckey: complete_key,
+    };
+
+    let mut out = vec![];
+    private_key.write(&mut out)?;
+
+    let priv_comment = format!("{} secret key", comment);
+    write_base64(&mut private_key_file, &priv_comment, &out)?;
+
+    // Store public key
+    let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
+
+    let mut out = vec![];
+    public_key.write(&mut out)?;
+
+    let pub_comment = format!("{} public key", comment);
+
+    write_base64(&mut pubkey, &pub_comment, &out)
 }
