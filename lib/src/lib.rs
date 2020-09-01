@@ -1,8 +1,11 @@
+use anyhow::anyhow;
 use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+
 use ed25519_dalek::{self, Keypair, Signer};
 use std::io::prelude::*;
-use std::io::Cursor;
+use std::io::BufReader;
+use std::io::{BufWriter, Cursor};
 use std::mem;
 
 pub const KEYNUMLEN: usize = 8;
@@ -170,4 +173,62 @@ impl Signature {
 
         public_key.verify_strict(msg, &sig).is_ok()
     }
+}
+
+pub fn read_base64<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Result<Vec<u8>> {
+    let mut comment_line = String::new();
+    let len = reader.read_line(&mut comment_line)?;
+
+    if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
+        return Err(anyhow!(
+            "invalid comment in {}; must start with '{}'",
+            file_display,
+            COMMENTHDR
+        ));
+    }
+
+    if &comment_line[len - 1..len] != "\n" {
+        return Err(anyhow!(
+            "missing new line after comment in {}",
+            file_display
+        ));
+    }
+
+    if len > COMMENTHDRLEN + COMMENTMAXLEN {
+        return Err(anyhow!("comment too long"));
+    }
+
+    let mut base64_line = String::new();
+    let len = reader.read_line(&mut base64_line)?;
+
+    if len == 0 {
+        return Err(anyhow!("missing line in {}", file_display));
+    }
+
+    if &base64_line[len - 1..len] != "\n" {
+        return Err(anyhow!(
+            "missing new line after comment in {}",
+            file_display
+        ));
+    }
+
+    let base64_line = &base64_line[0..len - 1];
+
+    let data = base64::decode(base64_line)?;
+
+    if data[0..2] != PKGALG {
+        return Err(anyhow!("unsupported file {}", file_display));
+    }
+
+    Ok(data)
+}
+
+pub fn write_base64<W: Write>(file: &mut BufWriter<W>, comment: &str, buf: &[u8]) -> Result<()> {
+    write!(file, "{}", COMMENTHDR)?;
+    writeln!(file, "{}", comment)?;
+    let out = base64::encode(buf);
+    writeln!(file, "{}", out)?;
+
+    file.flush()?;
+    Ok(())
 }

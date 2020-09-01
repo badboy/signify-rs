@@ -9,8 +9,10 @@ use sha2::{Digest, Sha512};
 use signify_lib::*;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::process;
+
+// https://docs.rs/clap/2.33.3/clap/
 
 #[derive(FromArgs, Debug)]
 /// signify-rs -- create cryptographic signatures for files and verify them
@@ -43,16 +45,16 @@ struct Args {
 
     /// public key produced by -G, and used by -V to check a signature.
     #[argh(option, short = 'p')]
-    public_key: String,
+    public_key: Option<String>,
 
     /// secret (private) key produced by -G, and used by -S to sign a message.
     #[argh(option, short = 's')]
-    secret_key: String,
+    secret_key: Option<String>,
 
     /// when signing, the file containing the message to sign. When verifying, the file containing the message to verify.
     /// when verifying with -e, the file to create.
     #[argh(option, short = 'm')]
-    message: String,
+    message: Option<String>,
 
     // when generating a key pair, do not ask for a passphrase. Otherwise, signify will prompt the user for a passphrase to protect the secret key.
     /// when signing with -z, store a zero time stamp in the gzip(1) header.
@@ -60,60 +62,32 @@ struct Args {
     no_passphrase: bool,
 }
 
-fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
-    write!(file, "{}", COMMENTHDR)?;
-    writeln!(file, "{}", comment)?;
-    let out = base64::encode(buf);
-    writeln!(file, "{}", out)?;
+fn read_password(confirm: bool) -> Result<String> {
+    let mut stdout = std::io::stdout();
+    stdout.write_all(b"passphrase: ")?;
+    stdout.flush()?;
 
-    Ok(())
+    let passphrase = rpassword::read_password()?;
+
+    if confirm {
+        stdout.write_all(b"confirm passphrase: ")?;
+        stdout.flush()?;
+        let confirm_passphrase = rpassword::read_password()?;
+        if passphrase != confirm_passphrase {
+            return Err(anyhow!("passwords don't match"));
+        }
+    }
+
+    Ok(passphrase)
 }
-fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Result<Vec<u8>> {
-    let mut comment_line = String::new();
-    let len = reader.read_line(&mut comment_line)?;
 
-    if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
-        return Err(anyhow!(
-            "invalid comment in {}; must start with '{}'",
-            file_display,
-            COMMENTHDR
-        ));
+fn human(res: Result<()>) {
+    match res {
+        Err(_e) => {
+            process::exit(1);
+        }
+        Ok(()) => {}
     }
-
-    if &comment_line[len - 1..len] != "\n" {
-        return Err(anyhow!(
-            "missing new line after comment in {}",
-            file_display
-        ));
-    }
-
-    if len > COMMENTHDRLEN + COMMENTMAXLEN {
-        return Err(anyhow!("comment too long"));
-    }
-
-    let mut base64_line = String::new();
-    let len = reader.read_line(&mut base64_line)?;
-
-    if len == 0 {
-        return Err(anyhow!("missing line in {}", file_display));
-    }
-
-    if &base64_line[len - 1..len] != "\n" {
-        return Err(anyhow!(
-            "missing new line after comment in {}",
-            file_display
-        ));
-    }
-
-    let base64_line = &base64_line[0..len - 1];
-
-    let data = base64::decode(base64_line)?;
-
-    if data[0..2] != PKGALG {
-        return Err(anyhow!("unsupported file {}", file_display));
-    }
-
-    Ok(data)
 }
 
 fn verify(
@@ -126,7 +100,7 @@ fn verify(
 
     let pubkey_file = File::open(&pubkey_path)?;
     let mut pubkey = BufReader::new(pubkey_file);
-    let serialized_pkey = read_base64_file(&pubkey_path, &mut pubkey)?;
+    let serialized_pkey = read_base64(&pubkey_path, &mut pubkey)?;
     let pkey = PublicKey::from_buf(&serialized_pkey)?;
 
     let signature_path = match signature_path {
@@ -138,7 +112,7 @@ fn verify(
     let mut sig_data = BufReader::new(signature_file);
 
     // TODO: Better error message?
-    let serialized_signature = read_base64_file(&signature_path, &mut sig_data)?;
+    let serialized_signature = read_base64(&signature_path, &mut sig_data)?;
     let signature = Signature::from_buf(&serialized_signature)?;
 
     let mut msg = vec![];
@@ -173,11 +147,19 @@ fn sign(
     let seckey_file = File::open(&seckey_path)?;
     let mut seckey = BufReader::new(seckey_file);
 
-    let serialized_skey = read_base64_file(&seckey_path, &mut seckey)?;
+    let serialized_skey = read_base64(&seckey_path, &mut seckey)?;
     let mut skey = PrivateKey::from_buf(&serialized_skey)?;
 
     let rounds = skey.kdfrounds;
-    let xorkey = kdf(&skey.salt, rounds, false, SECRETBYTES)?;
+    let xorkey = if rounds > 0 {
+        let passphrase = read_password(false)?;
+
+        let mut xorkey = vec![0; SECRETBYTES];
+        bcrypt_pbkdf(passphrase.as_bytes(), &skey.salt, rounds, &mut xorkey);
+        xorkey
+    } else {
+        vec![0; SECRETBYTES]
+    };
 
     for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
         *prv ^= xor;
@@ -200,45 +182,19 @@ fn sign(
 
     let sig_comment = "signature from signify secret key";
 
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&signature_path)?;
-    write_base64_file(&mut file, sig_comment, &out)?;
+
+    let mut file = BufWriter::new(file);
+    write_base64(&mut file, sig_comment, &out)?;
 
     if embed {
         file.write_all(&msg)?;
     }
 
     Ok(())
-}
-
-fn read_password(prompt: &str) -> Result<String> {
-    let mut stdout = std::io::stdout();
-    stdout.write_all(prompt.as_bytes())?;
-    stdout.flush()?;
-
-    Ok(rpassword::read_password()?)
-}
-
-fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>> {
-    let mut result = vec![0; keylen];
-    if rounds == 0 {
-        return Ok(result);
-    }
-
-    let passphrase = read_password("passphrase: ")?;
-
-    if confirm {
-        let confirm_passphrase = read_password("confirm passphrase: ")?;
-
-        if passphrase != confirm_passphrase {
-            return Err(anyhow!("passwords don't match"));
-        }
-    }
-
-    bcrypt_pbkdf(passphrase.as_bytes(), salt, rounds, &mut result);
-    Ok(result)
 }
 
 fn generate(
@@ -261,8 +217,14 @@ fn generate(
 
     let mut salt = [0; 16];
     OsRng.fill_bytes(&mut salt);
-
-    let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
+    let xorkey = if kdfrounds > 0 {
+        let passphrase = read_password(true)?;
+        let mut xorkey = vec![0; SECRETBYTES];
+        bcrypt_pbkdf(passphrase.as_bytes(), &salt, kdfrounds, &mut xorkey);
+        xorkey
+    } else {
+        vec![0; SECRETBYTES]
+    };
 
     for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
         *prv ^= xor;
@@ -296,11 +258,13 @@ fn generate(
     private_key.write(&mut out)?;
 
     let priv_comment = format!("{} secret key", comment);
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&privkey_path)?;
-    write_base64_file(&mut file, &priv_comment, &out)?;
+
+    let mut file = BufWriter::new(file);
+    write_base64(&mut file, &priv_comment, &out)?;
 
     // Store public key
     let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
@@ -309,20 +273,13 @@ fn generate(
     public_key.write(&mut out)?;
 
     let pub_comment = format!("{} public key", comment);
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&pubkey_path)?;
-    write_base64_file(&mut file, &pub_comment, &out)
-}
 
-fn human(res: Result<()>) {
-    match res {
-        Err(_e) => {
-            process::exit(1);
-        }
-        Ok(()) => {}
-    }
+    let mut file = BufWriter::new(file);
+    write_base64(&mut file, &pub_comment, &out)
 }
 
 fn main() {
@@ -330,23 +287,23 @@ fn main() {
 
     if args.verify {
         human(verify(
-            args.public_key,
-            args.message,
+            args.public_key.unwrap(),
+            args.message.unwrap(),
             args.signature_file,
             args.embed,
         ));
     } else if args.generate {
         let rounds = if args.no_passphrase { 0 } else { 42 };
         human(generate(
-            args.public_key,
-            args.secret_key,
+            args.public_key.unwrap(),
+            args.secret_key.unwrap(),
             args.comment,
             rounds,
         ));
     } else if args.sign {
         human(sign(
-            args.secret_key,
-            args.message,
+            args.secret_key.unwrap(),
+            args.message.unwrap(),
             args.signature_file,
             args.embed,
         ));
