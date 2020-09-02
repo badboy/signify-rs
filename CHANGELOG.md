@@ -1,3 +1,8 @@
+# v0.5.0 (2020)
+
+* update deps
+* extract into library and cli
+
 # v0.4.1 (2018-01-11)
 
 * Exclude temporary files from crate

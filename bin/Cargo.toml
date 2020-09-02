@@ -1,0 +1,21 @@
+[package]
+name = "signify"
+version = "0.4.1"
+authors = ["Jan-Erik Rediger <janerik@fnordig.de>"]
+edition = "2018"
+
+keywords = [ "cryptography", "security" ]
+description = "Create cryptographic signatures for files and verify them"
+
+readme = "README.md"
+license = "MIT"
+
+homepage = "https://github.com/badboy/signify-rs"
+repository = "https://github.com/badboy/signify-rs"
+
+[dependencies]
+argh = "^0.1.3"
+rpassword = "5"
+anyhow = "^1.0.32"
+
+signify_lib = { path = "../lib" }
