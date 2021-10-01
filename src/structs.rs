@@ -2,12 +2,9 @@ use std::mem;
 use std::io::prelude::*;
 use std::io::Cursor;
 
-use errors::*;
-
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-
-use ring::signature::{self, Ed25519KeyPair};
-use untrusted;
+use anyhow::Result;
+use ring::signature::Ed25519KeyPair;
 
 pub const KEYNUMLEN : usize = 8;
 pub const PUBLICBYTES : usize = 32;
@@ -127,9 +124,10 @@ impl PrivateKey {
     }
 
     pub fn sign(&self, msg: &[u8]) -> Result<Signature> {
-        let seed = untrusted::Input::from(&self.seckey[0..32]);
-        let pubkey = untrusted::Input::from(&self.seckey[32..]);
-        let keypair = Ed25519KeyPair::from_seed_and_public_key(seed, pubkey)?;
+        let seed = &self.seckey[0..32];
+        let pubkey = &self.seckey[32..];
+        let keypair = Ed25519KeyPair::from_seed_and_public_key(seed, pubkey)
+            .map_err(|_| anyhow::Error::msg("KeyRejected error"))?;
         let signature = keypair.sign(msg);
         let mut sig = [0; 64];
         sig.copy_from_slice(signature.as_ref());
@@ -171,11 +169,6 @@ impl Signature {
     }
 
     pub fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        let public_key = untrusted::Input::from(&pkey.publkey);
-        let sig = untrusted::Input::from(&self.sig);
-        let msg = untrusted::Input::from(msg);
-
-        signature::verify(&signature::ED25519,
-                          public_key, msg, sig).is_ok()
+        crypto::ed25519::verify(&msg, &pkey.publkey, &self.sig)
     }
 }

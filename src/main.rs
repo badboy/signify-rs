@@ -1,14 +1,3 @@
-extern crate crypto;
-extern crate base64;
-extern crate byteorder;
-extern crate docopt;
-#[macro_use]
-extern crate serde_derive;
-extern crate rpassword;
-extern crate ring;
-extern crate untrusted;
-extern crate failure;
-
 use std::process;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -18,14 +7,11 @@ use ring::rand::{SecureRandom, SystemRandom};
 use ring::signature::Ed25519KeyPair;
 use ring::digest;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
-
+use anyhow::{Result, bail, anyhow};
 use docopt::Docopt;
+use structs::*;
 
 mod structs;
-mod errors;
-
-use structs::*;
-use errors::*;
 
 const USAGE: &'static str = "
 signify-rs
@@ -51,7 +37,7 @@ Options:
 ";
 
 #[allow(non_snake_case)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct Args {
     flag_G: bool,
     flag_S: bool,
@@ -81,26 +67,26 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
     let len = reader.read_line(&mut comment_line)?;
 
     if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
-        return Err(err_msg(format!("invalid comment in {}; must start with '{}'", file_display, COMMENTHDR)));
+        bail!("invalid comment in {}; must start with '{}'", file_display, COMMENTHDR);
     }
 
     if &comment_line[len-1..len] != "\n" {
-        return Err(err_msg(format!("missing new line after comment in {}", file_display)));
+        bail!("missing new line after comment in {}", file_display);
     }
 
     if len > COMMENTHDRLEN + COMMENTMAXLEN {
-        return Err(err_msg("comment too long"));
+        bail!("comment too long");
     }
 
     let mut base64_line = String::new();
     let len = reader.read_line(&mut base64_line)?;
 
     if len == 0 {
-        return Err(err_msg(format!("missing line in {}", file_display)));
+        bail!("missing line in {}", file_display);
     }
 
     if &base64_line[len-1..len] != "\n" {
-        return Err(err_msg(format!("missing new line after comment in {}", file_display)));
+        bail!("missing new line after comment in {}", file_display);
     }
 
     let base64_line = &base64_line[0..len-1];
@@ -108,7 +94,7 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
     let data = base64::decode(base64_line)?;
 
     if &data[0..2] != PKGALG {
-        return Err(err_msg(format!("unsupported file {}", file_display)));
+        bail!("unsupported file {}", file_display);
     }
 
     Ok(data)
@@ -146,14 +132,14 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>,
     }
 
     if signature.keynum != pkey.keynum {
-        return Err(err_msg("signature verification failed: checked against wrong key"));
+        bail!("signature verification failed: checked against wrong key");
     }
 
     if signature.verify(&msg, &pkey) {
         println!("Signature Verified");
         Ok(())
     } else {
-        Err(err_msg("signature verification failed"))
+        Err(anyhow!("signature verification failed"))
     }
 }
 
@@ -218,7 +204,7 @@ fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>
         let confirm_passphrase = read_password("confirm passphrase: ")?;
 
         if passphrase != confirm_passphrase {
-            return Err(err_msg("passwords don't match"));
+            bail!("passwords don't match");
         }
     }
 
@@ -233,9 +219,11 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     };
 
     let mut keynum = [0; KEYNUMLEN];
-    SystemRandom.fill(&mut keynum)?;
+    let rng = SystemRandom::new();
+    rng.fill(&mut keynum).expect("error with random number generator");
 
-    let pkcs = Ed25519KeyPair::generate_pkcs8(&SystemRandom)?;
+    let pkcs = Ed25519KeyPair::generate_pkcs8(&rng).expect("error generating keypair");
+    let pkcs = pkcs.as_ref();
     // FIXME: WHAT A HACK
     // Offsets of both parts of the key are known, but this is baaad to extract
     let mut skey = [0; 32];
@@ -245,7 +233,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let pkey = pkey;
 
     let mut salt = [0; 16];
-    SystemRandom.fill(&mut salt)?;
+    rng.fill(&mut salt).expect("error with random number generator");
 
     let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
 
@@ -298,7 +286,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
 fn human(res: Result<()>) {
     match res {
         Err(e) => {
-            println!("error: {}", e.cause());
+            println!("error: {}", e);
 
             process::exit(1);
         },
