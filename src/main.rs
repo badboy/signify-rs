@@ -324,7 +324,7 @@ fn generate(
 fn human(res: Result<()>) {
     match res {
         Err(e) => {
-            println!("error: {}", e.cause());
+            println!("error: {}", e.as_fail());
 
             process::exit(1);
         }
