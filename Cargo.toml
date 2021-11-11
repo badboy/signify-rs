@@ -26,7 +26,7 @@ include = [
 
 [dependencies]
 byteorder = "1.2"
-rust-crypto = "0.2"
+bcrypt-pbkdf = "0.7"
 base64 = "0.13"
 docopt = "1"
 rpassword = "5"
