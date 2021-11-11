@@ -3,9 +3,9 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::process;
 
-use ring::digest;
-use ring::rand::{self, SecureRandom, SystemRandom};
-use ring::signature::Ed25519KeyPair;
+use ed25519_dalek::{Digest, Keypair, Sha512};
+use rand_core::{OsRng, RngCore};
+
 use serde::Deserialize;
 
 use docopt::Docopt;
@@ -243,28 +243,23 @@ fn generate(
     comment: Option<String>,
     kdfrounds: u32,
 ) -> Result<()> {
-    let rng = SystemRandom::new();
+    let mut rng = OsRng;
 
     let comment = match comment {
         Some(s) => s,
         None => "signify".into(),
     };
 
-    let keynum: [u8; KEYNUMLEN] = rand::generate(&rng)?.expose();
+    let mut keynum = [0u8; KEYNUMLEN];
+    rng.fill_bytes(&mut keynum);
 
-    let pkcs = Ed25519KeyPair::generate_pkcs8(&rng)?;
-    let pkcs = pkcs.as_ref();
+    let key_pair = Keypair::generate(&mut rng);
 
-    // FIXME: WHAT A HACK
-    // Offsets of both parts of the key are known, but this is baaad to extract
-    let mut skey = [0; 32];
-    skey.copy_from_slice(&pkcs[16..48]);
-    let mut pkey = [0; 32];
-    pkey.copy_from_slice(&pkcs[53..]);
-    let pkey = pkey;
+    let mut skey = key_pair.secret.to_bytes();
+    let pkey = key_pair.public.to_bytes();
 
     let mut salt = [0; 16];
-    rng.fill(&mut salt)?;
+    rng.fill_bytes(&mut salt);
 
     let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
 
@@ -272,17 +267,12 @@ fn generate(
         *prv ^= xor;
     }
 
-    // signify stores the extended key as the private key,
-    // that is the 32 byte of the secret key, followed by the 32 byte of the public key,
-    // summing up to 64 byte.
-    //
-    //  *ring* separates them, so we need to stick them together again.
-    let mut complete_key = [0; 64];
-    complete_key[0..32].copy_from_slice(&skey[0..32]);
+    let mut complete_key = [0u8; SECRETBYTES];
+    complete_key[..32].copy_from_slice(&skey);
     complete_key[32..].copy_from_slice(&pkey);
 
     // Store private key
-    let digest = digest::digest(&digest::SHA512, &complete_key);
+    let digest = Sha512::digest(&complete_key);
     let mut checksum = [0; 8];
     checksum.copy_from_slice(&digest.as_ref()[0..8]);
 

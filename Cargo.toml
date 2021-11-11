@@ -30,7 +30,7 @@ bcrypt-pbkdf = "0.7"
 base64 = "0.13"
 docopt = "1"
 rpassword = "5"
-ring = { version = "0.16", features = ["std"] }
-untrusted = "0.7"
+ed25519-dalek = { version = "1", default-features = false, features = ["alloc", "u64_backend"] }
+rand_core = { version = "0.5", features = ["getrandom"] }
 failure = "0.1"
 serde = { version = "1.0", features = ["derive"] }
