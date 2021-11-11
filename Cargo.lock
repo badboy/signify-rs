@@ -312,6 +312,9 @@ name = "serde"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db99f3919e20faa51bb2996057f5031d8685019b5a06139b1ce761da671b8526"
+dependencies = [
+ "serde_derive",
+]
 
 [[package]]
 name = "serde_derive"
@@ -346,7 +349,6 @@ dependencies = [
  "rpassword",
  "rust-crypto",
  "serde",
- "serde_derive",
  "untrusted 0.5.1",
 ]
 

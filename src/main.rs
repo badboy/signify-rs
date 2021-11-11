@@ -1,14 +1,3 @@
-extern crate crypto;
-extern crate base64;
-extern crate byteorder;
-extern crate docopt;
-#[macro_use]
-extern crate serde_derive;
-extern crate rpassword;
-extern crate ring;
-extern crate untrusted;
-extern crate failure;
-
 use std::process;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -18,6 +7,7 @@ use ring::rand::{self, SecureRandom, SystemRandom};
 use ring::signature::Ed25519KeyPair;
 use ring::digest;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
+use serde::Deserialize;
 
 use docopt::Docopt;
 
@@ -27,7 +17,7 @@ mod errors;
 use structs::*;
 use errors::*;
 
-const USAGE: &'static str = "
+const USAGE: &str = "
 signify-rs
 
 Usage:
@@ -69,9 +59,9 @@ struct Args {
 
 fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
     write!(file, "{}", COMMENTHDR)?;
-    write!(file, "{}\n", comment)?;
+    writeln!(file, "{}", comment)?;
     let out = base64::encode(buf);
-    write!(file, "{}\n", out)?;
+    writeln!(file, "{}", out)?;
 
     Ok(())
 }
@@ -107,7 +97,7 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
 
     let data = base64::decode(base64_line)?;
 
-    if &data[0..2] != PKGALG {
+    if data[0..2] != PKGALG {
         return Err(err_msg(format!("unsupported file {}", file_display)));
     }
 
@@ -168,7 +158,7 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, e
     let xorkey = kdf(&skey.salt, rounds, false, SECRETBYTES)?;
 
     for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
-        *prv = *prv ^ xor;
+        *prv ^= xor;
     }
     let skey = skey;
 
@@ -192,7 +182,7 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, e
     write_base64_file(&mut file, sig_comment, &out)?;
 
     if embed {
-        file.write(&msg)?;
+        file.write_all(&msg)?;
     }
 
     Ok(())
@@ -253,7 +243,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
 
     for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
-        *prv = *prv ^ xor;
+        *prv ^= xor;
     }
 
     // signify stores the extended key as the private key,
@@ -273,10 +263,10 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let private_key = PrivateKey {
         pkgalg: PKGALG,
         kdfalg: KDFALG,
-        kdfrounds: kdfrounds,
-        salt: salt,
-        checksum: checksum,
-        keynum: keynum,
+        kdfrounds,
+        salt,
+        checksum,
+        keynum,
         seckey: complete_key,
     };
 

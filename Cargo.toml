@@ -2,6 +2,7 @@
 name = "signify"
 version = "0.4.1"
 authors = ["Jan-Erik Rediger <janerik@fnordig.de>"]
+edition = "2021"
 
 keywords = [ "cryptography", "security" ]
 description = "Create cryptographic signatures for files and verify them"
@@ -32,5 +33,4 @@ rpassword = "2"
 ring = { version = "0.16.20", features = ["std"] }
 untrusted = "0.5"
 failure = "0.1"
-serde = "1.0"
-serde_derive = "1.0"
+serde = { version = "1.0", features = ["derive"] }
