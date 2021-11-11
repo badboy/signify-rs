@@ -14,7 +14,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::fs::{OpenOptions, File};
 
-use ring::rand::{SecureRandom, SystemRandom};
+use ring::rand::{self, SecureRandom, SystemRandom};
 use ring::signature::Ed25519KeyPair;
 use ring::digest;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
@@ -227,15 +227,18 @@ fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>
 }
 
 fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, kdfrounds: u32) -> Result<()> {
+    let rng = SystemRandom::new();
+
     let comment = match comment {
         Some(s) => s,
         None    => "signify".into()
     };
 
-    let mut keynum = [0; KEYNUMLEN];
-    SystemRandom.fill(&mut keynum)?;
+    let keynum: [u8; KEYNUMLEN] = rand::generate(&rng)?.expose();
 
-    let pkcs = Ed25519KeyPair::generate_pkcs8(&SystemRandom)?;
+    let pkcs = Ed25519KeyPair::generate_pkcs8(&rng)?;
+    let pkcs = pkcs.as_ref();
+
     // FIXME: WHAT A HACK
     // Offsets of both parts of the key are known, but this is baaad to extract
     let mut skey = [0; 32];
@@ -245,7 +248,7 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let pkey = pkey;
 
     let mut salt = [0; 16];
-    SystemRandom.fill(&mut salt)?;
+    rng.fill(&mut salt)?;
 
     let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
 

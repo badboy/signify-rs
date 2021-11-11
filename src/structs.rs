@@ -7,7 +7,6 @@ use errors::*;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use ring::signature::{self, Ed25519KeyPair};
-use untrusted;
 
 pub const KEYNUMLEN : usize = 8;
 pub const PUBLICBYTES : usize = 32;
@@ -127,8 +126,8 @@ impl PrivateKey {
     }
 
     pub fn sign(&self, msg: &[u8]) -> Result<Signature> {
-        let seed = untrusted::Input::from(&self.seckey[0..32]);
-        let pubkey = untrusted::Input::from(&self.seckey[32..]);
+        let seed = &self.seckey[0..32];
+        let pubkey = &self.seckey[32..];
         let keypair = Ed25519KeyPair::from_seed_and_public_key(seed, pubkey)?;
         let signature = keypair.sign(msg);
         let mut sig = [0; 64];
@@ -171,11 +170,11 @@ impl Signature {
     }
 
     pub fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        let public_key = untrusted::Input::from(&pkey.publkey);
-        let sig = untrusted::Input::from(&self.sig);
-        let msg = untrusted::Input::from(msg);
+        let public_key = signature::UnparsedPublicKey::new(
+            &signature::ED25519, 
+            &pkey.publkey
+        );
 
-        signature::verify(&signature::ED25519,
-                          public_key, msg, sig).is_ok()
+        public_key.verify(msg, &self.sig).is_ok()
     }
 }
