@@ -1,6 +1,6 @@
-use std::mem;
 use std::io::prelude::*;
 use std::io::Cursor;
+use std::mem;
 
 use crate::errors::*;
 
@@ -8,17 +8,17 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use ring::signature::{self, Ed25519KeyPair};
 
-pub const KEYNUMLEN : usize = 8;
-pub const PUBLICBYTES : usize = 32;
-pub const SECRETBYTES : usize = 64;
-pub const SIGBYTES : usize = 64;
+pub const KEYNUMLEN: usize = 8;
+pub const PUBLICBYTES: usize = 32;
+pub const SECRETBYTES: usize = 64;
+pub const SIGBYTES: usize = 64;
 
-pub const PKGALG : [u8; 2] = *b"Ed";
-pub const KDFALG : [u8; 2] = *b"BK";
+pub const PKGALG: [u8; 2] = *b"Ed";
+pub const KDFALG: [u8; 2] = *b"BK";
 
-pub const COMMENTHDR : &str = "untrusted comment: ";
-pub const COMMENTHDRLEN : usize = 19;
-pub const COMMENTMAXLEN : usize = 1024;
+pub const COMMENTHDR: &str = "untrusted comment: ";
+pub const COMMENTHDRLEN: usize = 19;
+pub const COMMENTMAXLEN: usize = 1024;
 
 pub struct PublicKey {
     pkgalg: [u8; 2],
@@ -27,13 +27,13 @@ pub struct PublicKey {
 }
 
 pub struct PrivateKey {
-   pub pkgalg: [u8; 2],
-   pub kdfalg: [u8; 2],
-   pub kdfrounds: u32,
-   pub salt: [u8; 16],
-   pub checksum: [u8; 8],
-   pub keynum: [u8; KEYNUMLEN],
-   pub seckey: [u8; SECRETBYTES],
+    pub pkgalg: [u8; 2],
+    pub kdfalg: [u8; 2],
+    pub kdfrounds: u32,
+    pub salt: [u8; 16],
+    pub checksum: [u8; 8],
+    pub keynum: [u8; KEYNUMLEN],
+    pub seckey: [u8; SECRETBYTES],
 }
 
 pub struct Signature {
@@ -135,7 +135,7 @@ impl PrivateKey {
         Ok(Signature {
             pkgalg: PKGALG,
             keynum: self.keynum,
-            sig
+            sig,
         })
     }
 }
@@ -170,10 +170,7 @@ impl Signature {
     }
 
     pub fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        let public_key = signature::UnparsedPublicKey::new(
-            &signature::ED25519, 
-            &pkey.publkey
-        );
+        let public_key = signature::UnparsedPublicKey::new(&signature::ED25519, &pkey.publkey);
 
         public_key.verify(msg, &self.sig).is_ok()
     }
