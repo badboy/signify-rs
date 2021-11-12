@@ -26,7 +26,7 @@ pub const COMMENTMAX_LEN: usize = 1024;
 
 pub struct PublicKey {
     pub keynum: KeyNumber,
-    public_key: [u8; PUBLICBYTES],
+    key: [u8; PUBLICBYTES],
 }
 
 pub struct PrivateKey {
@@ -48,7 +48,7 @@ impl PublicKey {
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
         w.write_all(&PKGALG)?;
         w.write_all(&self.keynum)?;
-        w.write_all(&self.public_key)?;
+        w.write_all(&self.key)?;
 
         Ok(())
     }
@@ -64,7 +64,10 @@ impl PublicKey {
         buf.read_exact(&mut keynum)?;
         buf.read_exact(&mut public_key)?;
 
-        Ok(PublicKey { keynum, public_key })
+        Ok(PublicKey {
+            keynum,
+            key: public_key,
+        })
     }
 }
 
@@ -151,7 +154,7 @@ impl PrivateKey {
     pub fn public(&self) -> PublicKey {
         // This `unwrap()` gets erased in release mode.
         PublicKey {
-            public_key: self.complete_key[32..].try_into().unwrap(),
+            key: self.complete_key[32..].try_into().unwrap(),
             keynum: self.keynum,
         }
     }
@@ -234,8 +237,8 @@ impl Signature {
         Ok(Signature { keynum, sig })
     }
 
-    pub fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        let public_key = Ed25519PublicKey::from_bytes(&pkey.public_key).unwrap();
+    pub fn verify(&self, msg: &[u8], public_key: &PublicKey) -> bool {
+        let public_key = Ed25519PublicKey::from_bytes(&public_key.key).unwrap();
         let signature = Ed25519Signature::new(self.sig);
 
         public_key.verify(msg, &signature).is_ok()
