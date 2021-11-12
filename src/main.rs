@@ -3,9 +3,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::process;
 
-use ed25519_dalek::{Digest, Keypair, Sha512};
-use rand_core::{OsRng, RngCore};
-
 use serde::Deserialize;
 
 use docopt::Docopt;
@@ -69,7 +66,7 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
     let mut comment_line = String::new();
     let len = reader.read_line(&mut comment_line)?;
 
-    if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
+    if len == 0 || len < COMMENTHDR.len() || !comment_line.starts_with(COMMENTHDR) {
         return Err(err_msg(format!(
             "invalid comment in {}; must start with '{}'",
             file_display, COMMENTHDR
@@ -83,7 +80,7 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
         )));
     }
 
-    if len > COMMENTHDRLEN + COMMENTMAXLEN {
+    if len > COMMENTHDR.len() + COMMENTMAX_LEN {
         return Err(err_msg("comment too long"));
     }
 
@@ -172,13 +169,10 @@ fn sign(
     let serialized_skey = read_base64_file(&seckey_path, &mut seckey)?;
     let mut skey = PrivateKey::from_buf(&serialized_skey)?;
 
-    let rounds = skey.kdfrounds;
-    let xorkey = kdf(&skey.salt, rounds, false, SECRETBYTES)?;
-
-    for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
-        *prv ^= xor;
+    if skey.is_encrypted() {
+        let passphrase = read_passphrase(false)?;
+        skey.kdf_mix(&passphrase)?;
     }
-    let skey = skey;
 
     let mut msgfile = File::open(&msg_path)?;
     let mut msg = vec![];
@@ -209,82 +203,41 @@ fn sign(
     Ok(())
 }
 
-fn read_password(prompt: &str) -> Result<String> {
-    let mut stdout = std::io::stdout();
-    stdout.write_all(prompt.as_bytes())?;
-    stdout.flush()?;
-
-    Ok(rpassword::read_password()?)
-}
-
-fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>> {
-    let mut result = vec![0; keylen];
-    if rounds == 0 {
-        return Ok(result);
-    }
-
-    let passphrase = read_password("passphrase: ")?;
+fn read_passphrase(confirm: bool) -> Result<String> {
+    let passphrase = rpassword::prompt_password_stdout("passphrase: ")?;
 
     if confirm {
-        let confirm_passphrase = read_password("confirm passphrase: ")?;
+        let confirm_passphrase = rpassword::prompt_password_stdout("confirm passphrase: ")?;
 
         if passphrase != confirm_passphrase {
             return Err(err_msg("passwords don't match"));
         }
     }
 
-    bcrypt_pbkdf::bcrypt_pbkdf(&passphrase, salt, rounds, &mut result)?;
-    Ok(result)
+    Ok(passphrase)
 }
 
 fn generate(
     pubkey_path: String,
     privkey_path: String,
-    comment: Option<String>,
-    kdfrounds: u32,
+    comment: Option<&str>,
+    kdfrounds: Option<u32>,
 ) -> Result<()> {
-    let mut rng = OsRng;
+    let comment = comment.unwrap_or("signify");
 
-    let comment = match comment {
-        Some(s) => s,
-        None => "signify".into(),
+    let derivation_info = match kdfrounds {
+        Some(kdf_rounds) => {
+            let passphrase = read_passphrase(true)?;
+            NewKeyOpts::Encrypted {
+                passphrase,
+                kdf_rounds,
+            }
+        }
+        None => NewKeyOpts::NoEncryption,
     };
 
-    let mut keynum = [0u8; KEYNUMLEN];
-    rng.fill_bytes(&mut keynum);
-
-    let key_pair = Keypair::generate(&mut rng);
-
-    let mut skey = key_pair.secret.to_bytes();
-    let pkey = key_pair.public.to_bytes();
-
-    let mut salt = [0; 16];
-    rng.fill_bytes(&mut salt);
-
-    let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
-
-    for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
-        *prv ^= xor;
-    }
-
-    let mut complete_key = [0u8; SECRETBYTES];
-    complete_key[..32].copy_from_slice(&skey);
-    complete_key[32..].copy_from_slice(&pkey);
-
-    // Store private key
-    let digest = Sha512::digest(&complete_key);
-    let mut checksum = [0; 8];
-    checksum.copy_from_slice(&digest.as_ref()[0..8]);
-
-    let private_key = PrivateKey {
-        pkgalg: PKGALG,
-        kdfalg: KDFALG,
-        kdfrounds,
-        salt,
-        checksum,
-        keynum,
-        seckey: complete_key,
-    };
+    // Store the private key
+    let private_key = PrivateKey::new(derivation_info)?;
 
     let mut out = vec![];
     private_key.write(&mut out)?;
@@ -294,10 +247,11 @@ fn generate(
         .write(true)
         .create_new(true)
         .open(&privkey_path)?;
+
     write_base64_file(&mut file, &priv_comment, &out)?;
 
     // Store public key
-    let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
+    let public_key = private_key.public();
 
     let mut out = vec![];
     public_key.write(&mut out)?;
@@ -307,6 +261,7 @@ fn generate(
         .write(true)
         .create_new(true)
         .open(&pubkey_path)?;
+
     write_base64_file(&mut file, &pub_comment, &out)
 }
 
@@ -329,8 +284,13 @@ fn main() {
     if args.flag_V {
         human(verify(args.flag_p, args.flag_m, args.flag_x, args.flag_e));
     } else if args.flag_G {
-        let rounds = if args.flag_n { 0 } else { 42 };
-        human(generate(args.flag_p, args.flag_s, args.flag_c, rounds));
+        let rounds = if args.flag_n { None } else { Some(42) };
+        human(generate(
+            args.flag_p,
+            args.flag_s,
+            args.flag_c.as_deref(),
+            rounds,
+        ));
     } else if args.flag_S {
         human(sign(args.flag_s, args.flag_m, args.flag_x, args.flag_e));
     }
