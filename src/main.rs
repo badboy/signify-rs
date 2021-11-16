@@ -3,7 +3,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::process;
 
-use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
 use ring::digest;
 use ring::rand::{self, SecureRandom, SystemRandom};
 use ring::signature::Ed25519KeyPair;
@@ -234,7 +233,7 @@ fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>
         }
     }
 
-    bcrypt_pbkdf(passphrase.as_bytes(), salt, rounds, &mut result);
+    bcrypt_pbkdf::bcrypt_pbkdf(&passphrase, salt, rounds, &mut result)?;
     Ok(result)
 }
 
@@ -324,7 +323,7 @@ fn generate(
 fn human(res: Result<()>) {
     match res {
         Err(e) => {
-            println!("error: {}", e.cause());
+            println!("error: {}", e.as_fail());
 
             process::exit(1);
         }
