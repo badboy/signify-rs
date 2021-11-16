@@ -1,11 +1,10 @@
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::path::{Path, PathBuf};
 use std::process;
 
-use serde::Deserialize;
-
-use docopt::Docopt;
+use clap::Parser;
 
 mod errors;
 mod structs;
@@ -13,44 +12,60 @@ mod structs;
 use errors::*;
 use structs::*;
 
-const USAGE: &str = "
-signify-rs
-
-Usage:
-  signify -h
-  signify -G [-n] [-c <comment>] -p <pubkey> -s <seckey>
-  signify -S [-e] [-x <sigfile>] -s <seckey> -m <message>
-  signify -V [-e] [-x <sigfile>] -p <pubkey> -m <message>
-
-Options:
-  -h --help     Show this screen.
-  -c <comment>  Specify the comment to be added during key generation.
-  -e            When signing, embed the message after the signature. When verifying extract the message from
-                the signature.
-  -m <message>  When signing, the file containing the message to sign.  When verifying, the file containing the
-                message to verify.  When verifying with -e, the file to create.
-  -n            Do not ask for a passphrase during key generation. Otherwise, signify will prompt the user for a
-                passphrase to protect the secret key.
-  -p <pubkey>   Public key produced by -G, and used by -V to check a signature.
-  -s <seckey>   Secret (private) key produced by -G, and used by -S to sign a message.
-  -x <sigfile>  The signature file to create or verify.  The default is <message>.sig.
-";
-
-#[allow(non_snake_case)]
-#[derive(Debug, Deserialize)]
+#[derive(Parser)]
+#[clap(
+    name = "signify",
+    override_usage = r#"signify -h
+    signify -G [-n] [-c <comment>] -p <pubkey> -s <seckey>
+    signify -S [-e] [-x <sigfile>] -s <seckey> -m <message>
+    signify -V [-e] [-x <sigfile>] -p <pubkey> -m <message>"#
+)]
 struct Args {
-    flag_G: bool,
-    flag_S: bool,
-    flag_V: bool,
+    #[clap(short = 'G', about = "Generate a new keypair.")]
+    generate: bool,
+    #[clap(short = 'S', about = "Sign the specified message file.")]
+    sign: bool,
+    #[clap(short = 'V', about = "Verify a message.")]
+    verify: bool,
 
-    flag_x: Option<String>,
-    flag_c: Option<String>,
-    flag_e: bool,
+    #[clap(
+        short = 'p',
+        about = "Public key produced by -G, and used by -V to check a signature."
+    )]
+    pubkey: Option<PathBuf>,
 
-    flag_p: String,
-    flag_s: String,
-    flag_m: String,
-    flag_n: bool,
+    #[clap(
+        short = 's',
+        about = "Secret (private) key produced by -G, and used by -S to sign a message."
+    )]
+    seckey: Option<PathBuf>,
+
+    #[clap(
+        short = 'n',
+        about = "Do not ask for a passphrase during key generation. Otherwise, signify will prompt the user for a passphrase to protect the secret key."
+    )]
+    skip_key_encryption: bool,
+
+    #[clap(short = 'm')]
+    message_path: Option<String>,
+
+    #[clap(
+        short = 'e',
+        about = "When signing, embed the message after the signature. When verifying, extract the message fromthe signature."
+    )]
+    embed_message: bool,
+
+    #[clap(
+        short = 'x',
+        about = "The signature file to create or verify. The default is <message>.sig."
+    )]
+    signature_path: Option<String>,
+
+    #[clap(
+        short = 'c',
+        about = "Specify the comment to be added during key generation"
+    )]
+    comment: Option<String>,
 }
 
 fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
@@ -109,16 +124,16 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
 }
 
 fn verify(
-    pubkey_path: String,
-    msg_path: String,
+    pubkey_path: &Path,
+    msg_path: &str,
     signature_path: Option<String>,
     embed: bool,
 ) -> Result<()> {
     // TODO: Better error message?
 
-    let pubkey_file = File::open(&pubkey_path)?;
+    let pubkey_file = File::open(pubkey_path)?;
     let mut pubkey = BufReader::new(pubkey_file);
-    let serialized_pkey = read_base64_file(&pubkey_path, &mut pubkey)?;
+    let serialized_pkey = read_base64_file(&pubkey_path.to_string_lossy(), &mut pubkey)?;
     let public_key = PublicKey::from_buf(&serialized_pkey)?;
 
     let signature_path = match signature_path {
@@ -138,7 +153,7 @@ fn verify(
     if embed {
         sig_data.read_to_end(&mut msg)?;
     } else {
-        let mut msg_file = File::open(&msg_path)?;
+        let mut msg_file = File::open(msg_path)?;
         msg_file.read_to_end(&mut msg)?;
     }
 
@@ -157,15 +172,15 @@ fn verify(
 }
 
 fn sign(
-    seckey_path: String,
-    msg_path: String,
+    private_key_path: &Path,
+    msg_path: &str,
     signature_path: Option<String>,
     embed: bool,
 ) -> Result<()> {
-    let seckey_file = File::open(&seckey_path)?;
+    let seckey_file = File::open(private_key_path)?;
     let mut secret_key = BufReader::new(seckey_file);
 
-    let serialized_skey = read_base64_file(&seckey_path, &mut secret_key)?;
+    let serialized_skey = read_base64_file(&private_key_path.to_string_lossy(), &mut secret_key)?;
     let mut secret_key = PrivateKey::from_buf(&serialized_skey)?;
 
     if secret_key.is_encrypted() {
@@ -218,8 +233,8 @@ fn read_passphrase(confirm: bool) -> Result<String> {
 }
 
 fn generate(
-    pubkey_path: String,
-    privkey_path: String,
+    pubkey_path: &Path,
+    privkey_path: &Path,
     comment: Option<&str>,
     kdfrounds: Option<u32>,
 ) -> Result<()> {
@@ -246,7 +261,7 @@ fn generate(
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&privkey_path)?;
+        .open(privkey_path)?;
 
     write_base64_file(&mut file, &priv_comment, &out)?;
 
@@ -260,38 +275,71 @@ fn generate(
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&pubkey_path)?;
+        .open(pubkey_path)?;
 
     write_base64_file(&mut file, &pub_comment, &out)
 }
 
 fn human(res: Result<()>) {
-    match res {
-        Err(e) => {
-            println!("error: {}", e.as_fail());
+    if let Err(e) = res {
+        println!("error: {}", e.as_fail());
+        process::exit(1);
+    }
+}
 
-            process::exit(1);
+fn unwrap_path<T>(kind: &'static str, path: Option<T>) -> T {
+    match path {
+        Some(p) => p,
+        None => {
+            println!("missing path to {}", kind);
+            process::exit(1)
         }
-        Ok(()) => {}
     }
 }
 
 fn main() {
-    let args: Args = Docopt::new(USAGE)
-        .and_then(|d| d.deserialize())
-        .unwrap_or_else(|e| e.exit());
+    let args = Args::parse();
 
-    if args.flag_V {
-        human(verify(args.flag_p, args.flag_m, args.flag_x, args.flag_e));
-    } else if args.flag_G {
-        let rounds = if args.flag_n { None } else { Some(42) };
+    if args.verify {
+        let public_key = unwrap_path("pubkey", args.pubkey);
+        let message = unwrap_path("message", args.message_path);
+
+        human(verify(
+            &public_key,
+            &message,
+            args.signature_path,
+            args.embed_message,
+        ));
+        return;
+    }
+
+    if args.generate {
+        let public_key = unwrap_path("pubkey", args.pubkey);
+        let private_key = unwrap_path("seckey", args.seckey);
+        let rounds = if args.skip_key_encryption {
+            None
+        } else {
+            Some(42)
+        };
+
         human(generate(
-            args.flag_p,
-            args.flag_s,
-            args.flag_c.as_deref(),
+            &public_key,
+            &private_key,
+            args.comment.as_deref(),
             rounds,
         ));
-    } else if args.flag_S {
-        human(sign(args.flag_s, args.flag_m, args.flag_x, args.flag_e));
+        return;
+    }
+
+    if args.sign {
+        let private_key = unwrap_path("seckey", args.seckey);
+        let msg_path = unwrap_path("message", args.message_path);
+
+        human(sign(
+            &private_key,
+            &msg_path,
+            args.signature_path,
+            args.embed_message,
+        ));
     }
 }
