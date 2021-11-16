@@ -5,8 +5,10 @@ use std::mem;
 use crate::errors::*;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-
-use ring::signature::{self, Ed25519KeyPair};
+use ed25519_dalek::{
+    Keypair, PublicKey as Ed25519PublicKey, Signature as Ed25519Signature, Signer as _,
+    Verifier as _,
+};
 
 pub const KEYNUMLEN: usize = 8;
 pub const PUBLICBYTES: usize = 32;
@@ -126,12 +128,8 @@ impl PrivateKey {
     }
 
     pub fn sign(&self, msg: &[u8]) -> Result<Signature> {
-        let seed = &self.seckey[0..32];
-        let pubkey = &self.seckey[32..];
-        let keypair = Ed25519KeyPair::from_seed_and_public_key(seed, pubkey)?;
-        let signature = keypair.sign(msg);
-        let mut sig = [0; 64];
-        sig.copy_from_slice(signature.as_ref());
+        let keypair = Keypair::from_bytes(&self.seckey).unwrap();
+        let sig = keypair.sign(msg).to_bytes();
         Ok(Signature {
             pkgalg: PKGALG,
             keynum: self.keynum,
@@ -170,8 +168,9 @@ impl Signature {
     }
 
     pub fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        let public_key = signature::UnparsedPublicKey::new(&signature::ED25519, &pkey.publkey);
+        let public_key = Ed25519PublicKey::from_bytes(&pkey.publkey).unwrap();
+        let signature = Ed25519Signature::new(self.sig);
 
-        public_key.verify(msg, &self.sig).is_ok()
+        public_key.verify(msg, &signature).is_ok()
     }
 }
