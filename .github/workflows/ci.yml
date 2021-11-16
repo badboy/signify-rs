@@ -30,6 +30,8 @@ jobs:
         profile: minimal
         override: true
     - run: cargo test --all
+    - run: make full-cycle
+    - run: make integration
 
   check_fmt_and_docs:
     name: Checking fmt and docs
