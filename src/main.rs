@@ -1,33 +1,23 @@
-extern crate crypto;
-extern crate base64;
-extern crate byteorder;
-extern crate docopt;
-#[macro_use]
-extern crate serde_derive;
-extern crate rpassword;
-extern crate ring;
-extern crate untrusted;
-extern crate failure;
-
-use std::process;
+use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::fs::{OpenOptions, File};
+use std::process;
 
-use ring::rand::{SecureRandom, SystemRandom};
-use ring::signature::Ed25519KeyPair;
-use ring::digest;
 use crypto::bcrypt_pbkdf::bcrypt_pbkdf;
+use ring::digest;
+use ring::rand::{self, SecureRandom, SystemRandom};
+use ring::signature::Ed25519KeyPair;
+use serde::Deserialize;
 
 use docopt::Docopt;
 
-mod structs;
 mod errors;
+mod structs;
 
-use structs::*;
 use errors::*;
+use structs::*;
 
-const USAGE: &'static str = "
+const USAGE: &str = "
 signify-rs
 
 Usage:
@@ -69,9 +59,9 @@ struct Args {
 
 fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
     write!(file, "{}", COMMENTHDR)?;
-    write!(file, "{}\n", comment)?;
+    writeln!(file, "{}", comment)?;
     let out = base64::encode(buf);
-    write!(file, "{}\n", out)?;
+    writeln!(file, "{}", out)?;
 
     Ok(())
 }
@@ -81,11 +71,17 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
     let len = reader.read_line(&mut comment_line)?;
 
     if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
-        return Err(err_msg(format!("invalid comment in {}; must start with '{}'", file_display, COMMENTHDR)));
+        return Err(err_msg(format!(
+            "invalid comment in {}; must start with '{}'",
+            file_display, COMMENTHDR
+        )));
     }
 
-    if &comment_line[len-1..len] != "\n" {
-        return Err(err_msg(format!("missing new line after comment in {}", file_display)));
+    if &comment_line[len - 1..len] != "\n" {
+        return Err(err_msg(format!(
+            "missing new line after comment in {}",
+            file_display
+        )));
     }
 
     if len > COMMENTHDRLEN + COMMENTMAXLEN {
@@ -99,22 +95,30 @@ fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> R
         return Err(err_msg(format!("missing line in {}", file_display)));
     }
 
-    if &base64_line[len-1..len] != "\n" {
-        return Err(err_msg(format!("missing new line after comment in {}", file_display)));
+    if &base64_line[len - 1..len] != "\n" {
+        return Err(err_msg(format!(
+            "missing new line after comment in {}",
+            file_display
+        )));
     }
 
-    let base64_line = &base64_line[0..len-1];
+    let base64_line = &base64_line[0..len - 1];
 
     let data = base64::decode(base64_line)?;
 
-    if &data[0..2] != PKGALG {
+    if data[0..2] != PKGALG {
         return Err(err_msg(format!("unsupported file {}", file_display)));
     }
 
     Ok(data)
 }
 
-fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>, embed: bool) -> Result<()> {
+fn verify(
+    pubkey_path: String,
+    msg_path: String,
+    signature_path: Option<String>,
+    embed: bool,
+) -> Result<()> {
     // TODO: Better error message?
 
     let pubkey_file = File::open(&pubkey_path)?;
@@ -122,10 +126,9 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>,
     let serialized_pkey = read_base64_file(&pubkey_path, &mut pubkey)?;
     let pkey = PublicKey::from_buf(&serialized_pkey)?;
 
-
     let signature_path = match signature_path {
         Some(path) => path,
-        None => format!("{}.sig", msg_path)
+        None => format!("{}.sig", msg_path),
     };
 
     let signature_file = File::open(&signature_path)?;
@@ -134,7 +137,6 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>,
     // TODO: Better error message?
     let serialized_signature = read_base64_file(&signature_path, &mut sig_data)?;
     let signature = Signature::from_buf(&serialized_signature)?;
-
 
     let mut msg = vec![];
 
@@ -146,7 +148,9 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>,
     }
 
     if signature.keynum != pkey.keynum {
-        return Err(err_msg("signature verification failed: checked against wrong key"));
+        return Err(err_msg(
+            "signature verification failed: checked against wrong key",
+        ));
     }
 
     if signature.verify(&msg, &pkey) {
@@ -157,7 +161,12 @@ fn verify(pubkey_path: String, msg_path: String, signature_path: Option<String>,
     }
 }
 
-fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, embed: bool) -> Result<()> {
+fn sign(
+    seckey_path: String,
+    msg_path: String,
+    signature_path: Option<String>,
+    embed: bool,
+) -> Result<()> {
     let seckey_file = File::open(&seckey_path)?;
     let mut seckey = BufReader::new(seckey_file);
 
@@ -168,7 +177,7 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, e
     let xorkey = kdf(&skey.salt, rounds, false, SECRETBYTES)?;
 
     for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
-        *prv = *prv ^ xor;
+        *prv ^= xor;
     }
     let skey = skey;
 
@@ -178,7 +187,7 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, e
 
     let signature_path = match signature_path {
         Some(path) => path,
-        None => format!("{}.sig", msg_path)
+        None => format!("{}.sig", msg_path),
     };
 
     let sig = skey.sign(&msg)?;
@@ -188,11 +197,14 @@ fn sign(seckey_path: String, msg_path: String, signature_path: Option<String>, e
 
     let sig_comment = "signature from signify secret key";
 
-    let mut file = OpenOptions::new().write(true).create_new(true).open(&signature_path)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&signature_path)?;
     write_base64_file(&mut file, sig_comment, &out)?;
 
     if embed {
-        file.write(&msg)?;
+        file.write_all(&msg)?;
     }
 
     Ok(())
@@ -226,16 +238,24 @@ fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>
     Ok(result)
 }
 
-fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, kdfrounds: u32) -> Result<()> {
+fn generate(
+    pubkey_path: String,
+    privkey_path: String,
+    comment: Option<String>,
+    kdfrounds: u32,
+) -> Result<()> {
+    let rng = SystemRandom::new();
+
     let comment = match comment {
         Some(s) => s,
-        None    => "signify".into()
+        None => "signify".into(),
     };
 
-    let mut keynum = [0; KEYNUMLEN];
-    SystemRandom.fill(&mut keynum)?;
+    let keynum: [u8; KEYNUMLEN] = rand::generate(&rng)?.expose();
 
-    let pkcs = Ed25519KeyPair::generate_pkcs8(&SystemRandom)?;
+    let pkcs = Ed25519KeyPair::generate_pkcs8(&rng)?;
+    let pkcs = pkcs.as_ref();
+
     // FIXME: WHAT A HACK
     // Offsets of both parts of the key are known, but this is baaad to extract
     let mut skey = [0; 32];
@@ -245,12 +265,12 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let pkey = pkey;
 
     let mut salt = [0; 16];
-    SystemRandom.fill(&mut salt)?;
+    rng.fill(&mut salt)?;
 
     let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
 
     for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
-        *prv = *prv ^ xor;
+        *prv ^= xor;
     }
 
     // signify stores the extended key as the private key,
@@ -270,10 +290,10 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     let private_key = PrivateKey {
         pkgalg: PKGALG,
         kdfalg: KDFALG,
-        kdfrounds: kdfrounds,
-        salt: salt,
-        checksum: checksum,
-        keynum: keynum,
+        kdfrounds,
+        salt,
+        checksum,
+        keynum,
         seckey: complete_key,
     };
 
@@ -281,7 +301,10 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     private_key.write(&mut out)?;
 
     let priv_comment = format!("{} secret key", comment);
-    let mut file = OpenOptions::new().write(true).create_new(true).open(&privkey_path)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&privkey_path)?;
     write_base64_file(&mut file, &priv_comment, &out)?;
 
     // Store public key
@@ -291,7 +314,10 @@ fn generate(pubkey_path: String, privkey_path: String, comment: Option<String>, 
     public_key.write(&mut out)?;
 
     let pub_comment = format!("{} public key", comment);
-    let mut file = OpenOptions::new().write(true).create_new(true).open(&pubkey_path)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&pubkey_path)?;
     write_base64_file(&mut file, &pub_comment, &out)
 }
 
@@ -301,7 +327,7 @@ fn human(res: Result<()>) {
             println!("error: {}", e.cause());
 
             process::exit(1);
-        },
+        }
         Ok(()) => {}
     }
 }
