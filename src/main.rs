@@ -3,9 +3,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::process;
 
-use ed25519_dalek::{Digest, Keypair, Sha512};
-use rand_core::{OsRng, RngCore};
-
 use serde::Deserialize;
 
 use docopt::Docopt;
@@ -57,8 +54,9 @@ struct Args {
 }
 
 fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
-    write!(file, "{}", COMMENTHDR)?;
+    file.write_all(COMMENTHDR.as_bytes())?;
     writeln!(file, "{}", comment)?;
+
     let out = base64::encode(buf);
     writeln!(file, "{}", out)?;
 
@@ -67,43 +65,41 @@ fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
 
 fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Result<Vec<u8>> {
     let mut comment_line = String::new();
-    let len = reader.read_line(&mut comment_line)?;
+    reader.read_line(&mut comment_line)?;
 
-    if len == 0 || len < COMMENTHDRLEN || !comment_line.starts_with(COMMENTHDR) {
+    if !comment_line.starts_with(COMMENTHDR) {
         return Err(err_msg(format!(
             "invalid comment in {}; must start with '{}'",
             file_display, COMMENTHDR
         )));
     }
 
-    if &comment_line[len - 1..len] != "\n" {
+    if !comment_line.ends_with('\n') {
         return Err(err_msg(format!(
             "missing new line after comment in {}",
             file_display
         )));
     }
 
-    if len > COMMENTHDRLEN + COMMENTMAXLEN {
+    if comment_line.len() > COMMENTHDR.len() + COMMENTMAX_LEN {
         return Err(err_msg("comment too long"));
     }
 
     let mut base64_line = String::new();
-    let len = reader.read_line(&mut base64_line)?;
+    reader.read_line(&mut base64_line)?;
 
-    if len == 0 {
+    if base64_line.is_empty() {
         return Err(err_msg(format!("missing line in {}", file_display)));
     }
 
-    if &base64_line[len - 1..len] != "\n" {
+    if !base64_line.ends_with('\n') {
         return Err(err_msg(format!(
             "missing new line after comment in {}",
             file_display
         )));
     }
 
-    let base64_line = &base64_line[0..len - 1];
-
-    let data = base64::decode(base64_line)?;
+    let data = base64::decode(base64_line.trim_end())?;
 
     if data[0..2] != PKGALG {
         return Err(err_msg(format!("unsupported file {}", file_display)));
@@ -123,7 +119,7 @@ fn verify(
     let pubkey_file = File::open(&pubkey_path)?;
     let mut pubkey = BufReader::new(pubkey_file);
     let serialized_pkey = read_base64_file(&pubkey_path, &mut pubkey)?;
-    let pkey = PublicKey::from_buf(&serialized_pkey)?;
+    let public_key = PublicKey::from_buf(&serialized_pkey)?;
 
     let signature_path = match signature_path {
         Some(path) => path,
@@ -142,17 +138,17 @@ fn verify(
     if embed {
         sig_data.read_to_end(&mut msg)?;
     } else {
-        let mut msgfile = File::open(&msg_path)?;
-        msgfile.read_to_end(&mut msg)?;
+        let mut msg_file = File::open(&msg_path)?;
+        msg_file.read_to_end(&mut msg)?;
     }
 
-    if signature.keynum != pkey.keynum {
+    if signature.keynum != public_key.keynum {
         return Err(err_msg(
             "signature verification failed: checked against wrong key",
         ));
     }
 
-    if signature.verify(&msg, &pkey) {
+    if signature.verify(&msg, &public_key) {
         println!("Signature Verified");
         Ok(())
     } else {
@@ -167,29 +163,26 @@ fn sign(
     embed: bool,
 ) -> Result<()> {
     let seckey_file = File::open(&seckey_path)?;
-    let mut seckey = BufReader::new(seckey_file);
+    let mut secret_key = BufReader::new(seckey_file);
 
-    let serialized_skey = read_base64_file(&seckey_path, &mut seckey)?;
-    let mut skey = PrivateKey::from_buf(&serialized_skey)?;
+    let serialized_skey = read_base64_file(&seckey_path, &mut secret_key)?;
+    let mut secret_key = PrivateKey::from_buf(&serialized_skey)?;
 
-    let rounds = skey.kdfrounds;
-    let xorkey = kdf(&skey.salt, rounds, false, SECRETBYTES)?;
-
-    for (prv, xor) in skey.seckey.iter_mut().zip(xorkey.iter()) {
-        *prv ^= xor;
+    if secret_key.is_encrypted() {
+        let passphrase = read_passphrase(false)?;
+        secret_key.kdf_mix(&passphrase)?;
     }
-    let skey = skey;
 
-    let mut msgfile = File::open(&msg_path)?;
+    let mut msg_file = File::open(&msg_path)?;
     let mut msg = vec![];
-    msgfile.read_to_end(&mut msg)?;
+    msg_file.read_to_end(&mut msg)?;
 
     let signature_path = match signature_path {
         Some(path) => path,
         None => format!("{}.sig", msg_path),
     };
 
-    let sig = skey.sign(&msg)?;
+    let sig = secret_key.sign(&msg)?;
 
     let mut out = vec![];
     sig.write(&mut out)?;
@@ -200,6 +193,7 @@ fn sign(
         .write(true)
         .create_new(true)
         .open(&signature_path)?;
+
     write_base64_file(&mut file, sig_comment, &out)?;
 
     if embed {
@@ -209,82 +203,41 @@ fn sign(
     Ok(())
 }
 
-fn read_password(prompt: &str) -> Result<String> {
-    let mut stdout = std::io::stdout();
-    stdout.write_all(prompt.as_bytes())?;
-    stdout.flush()?;
-
-    Ok(rpassword::read_password()?)
-}
-
-fn kdf(salt: &[u8], rounds: u32, confirm: bool, keylen: usize) -> Result<Vec<u8>> {
-    let mut result = vec![0; keylen];
-    if rounds == 0 {
-        return Ok(result);
-    }
-
-    let passphrase = read_password("passphrase: ")?;
+fn read_passphrase(confirm: bool) -> Result<String> {
+    let passphrase = rpassword::prompt_password_stdout("passphrase: ")?;
 
     if confirm {
-        let confirm_passphrase = read_password("confirm passphrase: ")?;
+        let confirm_passphrase = rpassword::prompt_password_stdout("confirm passphrase: ")?;
 
         if passphrase != confirm_passphrase {
             return Err(err_msg("passwords don't match"));
         }
     }
 
-    bcrypt_pbkdf::bcrypt_pbkdf(&passphrase, salt, rounds, &mut result)?;
-    Ok(result)
+    Ok(passphrase)
 }
 
 fn generate(
     pubkey_path: String,
     privkey_path: String,
-    comment: Option<String>,
-    kdfrounds: u32,
+    comment: Option<&str>,
+    kdfrounds: Option<u32>,
 ) -> Result<()> {
-    let mut rng = OsRng;
+    let comment = comment.unwrap_or("signify");
 
-    let comment = match comment {
-        Some(s) => s,
-        None => "signify".into(),
+    let derivation_info = match kdfrounds {
+        Some(kdf_rounds) => {
+            let passphrase = read_passphrase(true)?;
+            NewKeyOpts::Encrypted {
+                passphrase,
+                kdf_rounds,
+            }
+        }
+        None => NewKeyOpts::NoEncryption,
     };
 
-    let mut keynum = [0u8; KEYNUMLEN];
-    rng.fill_bytes(&mut keynum);
-
-    let key_pair = Keypair::generate(&mut rng);
-
-    let mut skey = key_pair.secret.to_bytes();
-    let pkey = key_pair.public.to_bytes();
-
-    let mut salt = [0; 16];
-    rng.fill_bytes(&mut salt);
-
-    let xorkey = kdf(&salt, kdfrounds, true, SECRETBYTES)?;
-
-    for (prv, xor) in skey.iter_mut().zip(xorkey.iter()) {
-        *prv ^= xor;
-    }
-
-    let mut complete_key = [0u8; SECRETBYTES];
-    complete_key[..32].copy_from_slice(&skey);
-    complete_key[32..].copy_from_slice(&pkey);
-
-    // Store private key
-    let digest = Sha512::digest(&complete_key);
-    let mut checksum = [0; 8];
-    checksum.copy_from_slice(&digest.as_ref()[0..8]);
-
-    let private_key = PrivateKey {
-        pkgalg: PKGALG,
-        kdfalg: KDFALG,
-        kdfrounds,
-        salt,
-        checksum,
-        keynum,
-        seckey: complete_key,
-    };
+    // Store the private key
+    let private_key = PrivateKey::new(derivation_info)?;
 
     let mut out = vec![];
     private_key.write(&mut out)?;
@@ -294,10 +247,11 @@ fn generate(
         .write(true)
         .create_new(true)
         .open(&privkey_path)?;
+
     write_base64_file(&mut file, &priv_comment, &out)?;
 
     // Store public key
-    let public_key = PublicKey::with_key_and_keynum(pkey, keynum);
+    let public_key = private_key.public();
 
     let mut out = vec![];
     public_key.write(&mut out)?;
@@ -307,6 +261,7 @@ fn generate(
         .write(true)
         .create_new(true)
         .open(&pubkey_path)?;
+
     write_base64_file(&mut file, &pub_comment, &out)
 }
 
@@ -329,8 +284,13 @@ fn main() {
     if args.flag_V {
         human(verify(args.flag_p, args.flag_m, args.flag_x, args.flag_e));
     } else if args.flag_G {
-        let rounds = if args.flag_n { 0 } else { 42 };
-        human(generate(args.flag_p, args.flag_s, args.flag_c, rounds));
+        let rounds = if args.flag_n { None } else { Some(42) };
+        human(generate(
+            args.flag_p,
+            args.flag_s,
+            args.flag_c.as_deref(),
+            rounds,
+        ));
     } else if args.flag_S {
         human(sign(args.flag_s, args.flag_m, args.flag_x, args.flag_e));
     }

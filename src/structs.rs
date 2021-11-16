@@ -1,137 +1,213 @@
+use std::convert::TryInto;
 use std::io::prelude::*;
 use std::io::Cursor;
-use std::mem;
 
-use crate::errors::*;
+use crate::errors::Result;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use ed25519_dalek::{
-    Keypair, PublicKey as Ed25519PublicKey, Signature as Ed25519Signature, Signer as _,
-    Verifier as _,
+    Digest, Keypair, PublicKey as Ed25519PublicKey, Sha512, Signature as Ed25519Signature,
+    Signer as _, Verifier as _,
 };
+use rand_core::{OsRng, RngCore};
 
-pub const KEYNUMLEN: usize = 8;
-pub const PUBLICBYTES: usize = 32;
-pub const SECRETBYTES: usize = 64;
-pub const SIGBYTES: usize = 64;
+const KEYNUM_LEN: usize = 8;
+type KeyNumber = [u8; KEYNUM_LEN];
+
+const PUBLICBYTES: usize = 32;
+const SECRETBYTES: usize = 64;
+const SIG_LEN: usize = 64;
 
 pub const PKGALG: [u8; 2] = *b"Ed";
-pub const KDFALG: [u8; 2] = *b"BK";
+const KDFALG: [u8; 2] = *b"BK";
 
 pub const COMMENTHDR: &str = "untrusted comment: ";
-pub const COMMENTHDRLEN: usize = 19;
-pub const COMMENTMAXLEN: usize = 1024;
+pub const COMMENTMAX_LEN: usize = 1024;
 
 pub struct PublicKey {
-    pkgalg: [u8; 2],
-    pub keynum: [u8; KEYNUMLEN],
-    publkey: [u8; PUBLICBYTES],
+    pub keynum: KeyNumber,
+    key: [u8; PUBLICBYTES],
 }
 
 pub struct PrivateKey {
-    pub pkgalg: [u8; 2],
-    pub kdfalg: [u8; 2],
-    pub kdfrounds: u32,
-    pub salt: [u8; 16],
-    pub checksum: [u8; 8],
-    pub keynum: [u8; KEYNUMLEN],
-    pub seckey: [u8; SECRETBYTES],
+    public_key_alg: [u8; 2],
+    kdf_alg: [u8; 2],
+    kdf_rounds: u32,
+    salt: [u8; 16],
+    checksum: [u8; 8],
+    keynum: KeyNumber,
+    complete_key: [u8; SECRETBYTES],
 }
 
 pub struct Signature {
-    pkgalg: [u8; 2],
-    pub keynum: [u8; KEYNUMLEN],
-    sig: [u8; SIGBYTES],
+    pub keynum: [u8; KEYNUM_LEN],
+    sig: [u8; SIG_LEN],
 }
 
 impl PublicKey {
-    pub fn with_key_and_keynum(key: [u8; PUBLICBYTES], keynum: [u8; KEYNUMLEN]) -> PublicKey {
-        PublicKey {
-            pkgalg: PKGALG,
-            keynum,
-            publkey: key,
-        }
-    }
-
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
-        w.write_all(&self.pkgalg)?;
+        w.write_all(&PKGALG)?;
         w.write_all(&self.keynum)?;
-        w.write_all(&self.publkey)?;
+        w.write_all(&self.key)?;
 
         Ok(())
     }
 
     pub fn from_buf(buf: &[u8]) -> Result<PublicKey> {
-        assert!(buf.len() >= mem::size_of::<Self>());
-
         let mut buf = Cursor::new(buf);
 
-        let mut pkgalg = [0; 2];
-        let mut keynum = [0; KEYNUMLEN];
-        let mut publkey = [0; PUBLICBYTES];
+        let mut _pkgalg = [0; 2];
+        let mut keynum = [0; KEYNUM_LEN];
+        let mut public_key = [0; PUBLICBYTES];
 
-        buf.read_exact(&mut pkgalg)?;
+        buf.read_exact(&mut _pkgalg)?;
         buf.read_exact(&mut keynum)?;
-        buf.read_exact(&mut publkey)?;
+        buf.read_exact(&mut public_key)?;
 
         Ok(PublicKey {
-            pkgalg,
             keynum,
-            publkey,
+            key: public_key,
         })
     }
 }
 
+pub enum NewKeyOpts {
+    NoEncryption,
+    Encrypted { passphrase: String, kdf_rounds: u32 },
+}
+
 impl PrivateKey {
+    pub fn new(derivation_info: NewKeyOpts) -> Result<Self> {
+        let mut rng = OsRng;
+
+        let mut keynum = [0u8; KEYNUM_LEN];
+        rng.fill_bytes(&mut keynum);
+
+        let key_pair = Keypair::generate(&mut rng);
+
+        let mut skey = key_pair.secret.to_bytes();
+        let pkey = key_pair.public.to_bytes();
+
+        let mut salt = [0; 16];
+        rng.fill_bytes(&mut salt);
+
+        let kdf_rounds = if let NewKeyOpts::Encrypted {
+            passphrase,
+            kdf_rounds,
+        } = derivation_info
+        {
+            Self::inner_kdf_mix(&mut skey, kdf_rounds, &salt, &passphrase)?;
+            kdf_rounds
+        } else {
+            0
+        };
+
+        let mut complete_key = [0u8; SECRETBYTES];
+        complete_key[32..].copy_from_slice(&pkey);
+        complete_key[..32].copy_from_slice(&skey);
+
+        let digest = Sha512::digest(&complete_key);
+        let mut checksum = [0; 8];
+        checksum.copy_from_slice(&digest.as_ref()[0..8]);
+
+        Ok(Self {
+            public_key_alg: PKGALG,
+            kdf_alg: KDFALG,
+            kdf_rounds,
+            salt,
+            checksum,
+            keynum,
+            complete_key,
+        })
+    }
+
+    pub fn kdf_mix(&mut self, passphrase: &str) -> Result<()> {
+        Self::inner_kdf_mix(
+            &mut self.complete_key,
+            self.kdf_rounds,
+            &self.salt,
+            passphrase,
+        )
+    }
+
+    fn inner_kdf_mix(
+        secret_key: &mut [u8],
+        rounds: u32,
+        salt: &[u8],
+        passphrase: &str,
+    ) -> Result<()> {
+        if rounds == 0 {
+            return Ok(());
+        }
+
+        let mut xorkey = [0; SECRETBYTES];
+
+        bcrypt_pbkdf::bcrypt_pbkdf(passphrase, salt, rounds, &mut xorkey)?;
+
+        for (prv, xor) in secret_key.iter_mut().zip(xorkey.iter()) {
+            *prv ^= xor;
+        }
+
+        Ok(())
+    }
+
+    pub fn public(&self) -> PublicKey {
+        // This `unwrap()` gets erased in release mode.
+        PublicKey {
+            key: self.complete_key[32..].try_into().unwrap(),
+            keynum: self.keynum,
+        }
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        self.kdf_rounds != 0
+    }
+
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
-        w.write_all(&self.pkgalg)?;
-        w.write_all(&self.kdfalg)?;
-        w.write_u32::<BigEndian>(self.kdfrounds)?;
+        w.write_all(&self.public_key_alg)?;
+        w.write_all(&self.kdf_alg)?;
+        w.write_u32::<BigEndian>(self.kdf_rounds)?;
         w.write_all(&self.salt)?;
         w.write_all(&self.checksum)?;
         w.write_all(&self.keynum)?;
-        w.write_all(&self.seckey)?;
+        w.write_all(&self.complete_key)?;
 
         Ok(())
     }
 
     pub fn from_buf(buf: &[u8]) -> Result<PrivateKey> {
-        assert!(buf.len() >= mem::size_of::<Self>());
-
         let mut buf = Cursor::new(buf);
 
-        let mut pkgalg = [0; 2];
-        let mut kdfalg = [0; 2];
-        let kdfrounds;
+        let mut public_key_alg = [0; 2];
+        let mut kdf_alg = [0; 2];
         let mut salt = [0; 16];
         let mut checksum = [0; 8];
-        let mut keynum = [0; KEYNUMLEN];
-        let mut seckey = [0; SECRETBYTES];
+        let mut keynum = [0; KEYNUM_LEN];
+        let mut complete_key = [0; SECRETBYTES];
 
-        buf.read_exact(&mut pkgalg)?;
-        buf.read_exact(&mut kdfalg)?;
-        kdfrounds = buf.read_u32::<BigEndian>()?;
+        buf.read_exact(&mut public_key_alg)?;
+        buf.read_exact(&mut kdf_alg)?;
+        let kdf_rounds = buf.read_u32::<BigEndian>()?;
         buf.read_exact(&mut salt)?;
         buf.read_exact(&mut checksum)?;
         buf.read_exact(&mut keynum)?;
-        buf.read_exact(&mut seckey)?;
+        buf.read_exact(&mut complete_key)?;
 
         Ok(PrivateKey {
-            pkgalg,
-            kdfalg,
-            kdfrounds,
+            public_key_alg,
+            kdf_alg,
+            kdf_rounds,
             salt,
             checksum,
             keynum,
-            seckey,
+            complete_key,
         })
     }
 
     pub fn sign(&self, msg: &[u8]) -> Result<Signature> {
-        let keypair = Keypair::from_bytes(&self.seckey).unwrap();
+        let keypair = Keypair::from_bytes(&self.complete_key).unwrap();
         let sig = keypair.sign(msg).to_bytes();
         Ok(Signature {
-            pkgalg: PKGALG,
             keynum: self.keynum,
             sig,
         })
@@ -140,7 +216,7 @@ impl PrivateKey {
 
 impl Signature {
     pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
-        w.write_all(&self.pkgalg)?;
+        w.write_all(&PKGALG)?;
         w.write_all(&self.keynum)?;
         w.write_all(&self.sig)?;
 
@@ -148,27 +224,21 @@ impl Signature {
     }
 
     pub fn from_buf(buf: &[u8]) -> Result<Signature> {
-        assert!(buf.len() >= mem::size_of::<Self>());
-
         let mut buf = Cursor::new(buf);
 
-        let mut pkgalg = [0; 2];
-        let mut keynum = [0; KEYNUMLEN];
-        let mut sig = [0; SIGBYTES];
+        let mut _pkgalg = [0; 2];
+        let mut keynum = [0; KEYNUM_LEN];
+        let mut sig = [0; SIG_LEN];
 
-        buf.read_exact(&mut pkgalg)?;
+        buf.read_exact(&mut _pkgalg)?;
         buf.read_exact(&mut keynum)?;
         buf.read_exact(&mut sig)?;
 
-        Ok(Signature {
-            pkgalg,
-            keynum,
-            sig,
-        })
+        Ok(Signature { keynum, sig })
     }
 
-    pub fn verify(&self, msg: &[u8], pkey: &PublicKey) -> bool {
-        let public_key = Ed25519PublicKey::from_bytes(&pkey.publkey).unwrap();
+    pub fn verify(&self, msg: &[u8], public_key: &PublicKey) -> bool {
+        let public_key = Ed25519PublicKey::from_bytes(&public_key.key).unwrap();
         let signature = Ed25519Signature::new(self.sig);
 
         public_key.verify(msg, &signature).is_ok()
