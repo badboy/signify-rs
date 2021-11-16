@@ -32,6 +32,9 @@ jobs:
     - run: cargo test --all
     - run: make full-cycle
     - run: make integration
+    - name: Test comparing against C signify
+      if: matrix.os == 'ubuntu-latest'
+      run: make compare
 
   check_fmt_and_docs:
     name: Checking fmt and docs
