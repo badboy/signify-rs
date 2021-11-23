@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::io::prelude::*;
 use std::io::Cursor;
 
-use crate::errors::Result;
+use crate::errors::Error;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use ed25519_dalek::{
@@ -12,7 +12,7 @@ use ed25519_dalek::{
 use rand_core::{OsRng, RngCore};
 
 const KEYNUM_LEN: usize = 8;
-type KeyNumber = [u8; KEYNUM_LEN];
+pub type KeyNumber = [u8; KEYNUM_LEN];
 
 const PUBLICBYTES: usize = 32;
 const SECRETBYTES: usize = 64;
@@ -45,7 +45,7 @@ pub struct Signature {
 }
 
 impl PublicKey {
-    pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
+    pub fn write<W: Write>(&self, mut w: W) -> Result<(), Error> {
         w.write_all(&PKGALG)?;
         w.write_all(&self.keynum)?;
         w.write_all(&self.key)?;
@@ -53,7 +53,7 @@ impl PublicKey {
         Ok(())
     }
 
-    pub fn from_buf(buf: &[u8]) -> Result<PublicKey> {
+    pub fn from_buf(buf: &[u8]) -> Result<PublicKey, Error> {
         let mut buf = Cursor::new(buf);
 
         let mut _pkgalg = [0; 2];
@@ -77,7 +77,7 @@ pub enum NewKeyOpts {
 }
 
 impl PrivateKey {
-    pub fn new(derivation_info: NewKeyOpts) -> Result<Self> {
+    pub fn new(derivation_info: NewKeyOpts) -> Result<Self, Error> {
         let mut rng = OsRng;
 
         let mut keynum = [0u8; KEYNUM_LEN];
@@ -121,7 +121,7 @@ impl PrivateKey {
         })
     }
 
-    pub fn kdf_mix(&mut self, passphrase: &str) -> Result<()> {
+    pub fn kdf_mix(&mut self, passphrase: &str) -> Result<(), Error> {
         Self::inner_kdf_mix(
             &mut self.complete_key,
             self.kdf_rounds,
@@ -135,14 +135,15 @@ impl PrivateKey {
         rounds: u32,
         salt: &[u8],
         passphrase: &str,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         if rounds == 0 {
             return Ok(());
         }
 
         let mut xorkey = [0; SECRETBYTES];
 
-        bcrypt_pbkdf::bcrypt_pbkdf(passphrase, salt, rounds, &mut xorkey)?;
+        bcrypt_pbkdf::bcrypt_pbkdf(passphrase, salt, rounds, &mut xorkey)
+            .map_err(|_| Error::BadPassword)?;
 
         for (prv, xor) in secret_key.iter_mut().zip(xorkey.iter()) {
             *prv ^= xor;
@@ -163,7 +164,7 @@ impl PrivateKey {
         self.kdf_rounds != 0
     }
 
-    pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
+    pub fn write<W: Write>(&self, mut w: W) -> Result<(), Error> {
         w.write_all(&self.public_key_alg)?;
         w.write_all(&self.kdf_alg)?;
         w.write_u32::<BigEndian>(self.kdf_rounds)?;
@@ -175,7 +176,7 @@ impl PrivateKey {
         Ok(())
     }
 
-    pub fn from_buf(buf: &[u8]) -> Result<PrivateKey> {
+    pub fn from_buf(buf: &[u8]) -> Result<PrivateKey, Error> {
         let mut buf = Cursor::new(buf);
 
         let mut public_key_alg = [0; 2];
@@ -204,7 +205,7 @@ impl PrivateKey {
         })
     }
 
-    pub fn sign(&self, msg: &[u8]) -> Result<Signature> {
+    pub fn sign(&self, msg: &[u8]) -> Result<Signature, Error> {
         let keypair = Keypair::from_bytes(&self.complete_key).unwrap();
         let sig = keypair.sign(msg).to_bytes();
         Ok(Signature {
@@ -215,7 +216,7 @@ impl PrivateKey {
 }
 
 impl Signature {
-    pub fn write<W: Write>(&self, mut w: W) -> Result<()> {
+    pub fn write<W: Write>(&self, mut w: W) -> Result<(), Error> {
         w.write_all(&PKGALG)?;
         w.write_all(&self.keynum)?;
         w.write_all(&self.sig)?;
@@ -223,7 +224,7 @@ impl Signature {
         Ok(())
     }
 
-    pub fn from_buf(buf: &[u8]) -> Result<Signature> {
+    pub fn from_buf(buf: &[u8]) -> Result<Signature, Error> {
         let mut buf = Cursor::new(buf);
 
         let mut _pkgalg = [0; 2];
