@@ -1,4 +1,4 @@
-use crate::structs::KeyNumber;
+use crate::consts::KeyNumber;
 use std::fmt::{self, Display};
 use std::io;
 
@@ -21,11 +21,13 @@ impl Display for Error {
             Error::Io(e) => Display::fmt(e, f),
             Error::InvalidFormat(e) => Display::fmt(e, f),
             Error::UnsupportedAlgorithm => f.write_str("encountered unsupported key algorithm"),
-            Error::MismatchedKey { expected, found } => write!(f,
-                "failed to verify signature: the wrong key was used. Expected #{:?}, but found {:?}",
+            Error::MismatchedKey { expected, found } => {
+                write!(f,
+                "failed to verify signature: the wrong key was used. Expected {:?}, but found {:?}",
                 expected,
                 found,
-            ),
+            )
+            }
             Error::BadSignature => f.write_str("signature verification failed"),
             Error::BadPassword => f.write_str("password was empty"),
         }

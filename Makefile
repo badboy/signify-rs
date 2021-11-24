@@ -7,10 +7,10 @@ cargo-test:
 	cargo test
 
 full-cycle:
-	./tests/full-cycle.sh
+	./signify/tests/full-cycle.sh
 
 integration:
-	./tests/integration.sh
+	./signify/tests/integration.sh
 
 compare:
-	./tests/compare.sh
+	./signify/tests/compare.sh

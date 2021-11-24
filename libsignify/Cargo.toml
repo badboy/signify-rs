@@ -1,0 +1,21 @@
+[package]
+name = "libsignify"
+version = "0.4.2"
+authors = ["Jan-Erik Rediger <janerik@fnordig.de>", "BlackHoleFox <blackholefoxdev@gmail.com>"]
+edition = "2021"
+
+keywords = ["cryptography", "security"]
+description = "Create cryptographic signatures for files and verify them"
+
+readme = "../README.md"
+license = "MIT"
+
+homepage = "https://github.com/badboy/signify-rs"
+repository = "https://github.com/badboy/signify-rs"
+
+[dependencies]
+byteorder = "1.2"
+bcrypt-pbkdf = "0.7"
+base64 = "0.13"
+ed25519-dalek = { version = "1", default-features = false, features = ["alloc", "u64_backend"] }
+rand_core = "0.5"
