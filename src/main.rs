@@ -9,7 +9,7 @@ use clap::Parser;
 mod errors;
 mod structs;
 
-use errors::*;
+use errors::{Error, FormatError};
 use structs::*;
 
 #[derive(Parser)]
@@ -68,7 +68,7 @@ struct Args {
     comment: Option<String>,
 }
 
-fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
+fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<(), Error> {
     file.write_all(COMMENTHDR.as_bytes())?;
     writeln!(file, "{}", comment)?;
 
@@ -78,49 +78,42 @@ fn write_base64_file(file: &mut File, comment: &str, buf: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn read_base64_file<R: Read>(file_display: &str, reader: &mut BufReader<R>) -> Result<Vec<u8>> {
+fn read_base64_file<R: Read>(reader: &mut BufReader<R>) -> Result<Vec<u8>, Error> {
     let mut comment_line = String::new();
     reader.read_line(&mut comment_line)?;
 
     if !comment_line.starts_with(COMMENTHDR) {
-        return Err(err_msg(format!(
-            "invalid comment in {}; must start with '{}'",
-            file_display, COMMENTHDR
-        )));
+        return Err(FormatError::Comment {
+            expected: COMMENTHDR,
+        }
+        .into());
     }
 
     if !comment_line.ends_with('\n') {
-        return Err(err_msg(format!(
-            "missing new line after comment in {}",
-            file_display
-        )));
+        return Err(FormatError::MissingNewline.into());
     }
 
     if comment_line.len() > COMMENTHDR.len() + COMMENTMAX_LEN {
-        return Err(err_msg("comment too long"));
+        return Err(FormatError::LineLength.into());
     }
 
     let mut base64_line = String::new();
     reader.read_line(&mut base64_line)?;
 
     if base64_line.is_empty() {
-        return Err(err_msg(format!("missing line in {}", file_display)));
+        return Err(FormatError::LineLength.into());
     }
 
     if !base64_line.ends_with('\n') {
-        return Err(err_msg(format!(
-            "missing new line after comment in {}",
-            file_display
-        )));
+        return Err(FormatError::MissingNewline.into());
     }
 
-    let data = base64::decode(base64_line.trim_end())?;
+    let data = base64::decode(base64_line.trim_end()).map_err(|_| FormatError::Base64)?;
 
-    if data[0..2] != PKGALG {
-        return Err(err_msg(format!("unsupported file {}", file_display)));
+    match data.get(0..2) {
+        Some(alg) if alg == PKGALG => Ok(data),
+        Some(_) | None => Err(Error::UnsupportedAlgorithm),
     }
-
-    Ok(data)
 }
 
 fn verify(
@@ -128,12 +121,12 @@ fn verify(
     msg_path: &str,
     signature_path: Option<String>,
     embed: bool,
-) -> Result<()> {
+) -> Result<(), Error> {
     // TODO: Better error message?
 
     let pubkey_file = File::open(pubkey_path)?;
     let mut pubkey = BufReader::new(pubkey_file);
-    let serialized_pkey = read_base64_file(&pubkey_path.to_string_lossy(), &mut pubkey)?;
+    let serialized_pkey = read_base64_file(&mut pubkey)?;
     let public_key = PublicKey::from_buf(&serialized_pkey)?;
 
     let signature_path = match signature_path {
@@ -145,7 +138,7 @@ fn verify(
     let mut sig_data = BufReader::new(signature_file);
 
     // TODO: Better error message?
-    let serialized_signature = read_base64_file(&signature_path, &mut sig_data)?;
+    let serialized_signature = read_base64_file(&mut sig_data)?;
     let signature = Signature::from_buf(&serialized_signature)?;
 
     let mut msg = vec![];
@@ -158,16 +151,17 @@ fn verify(
     }
 
     if signature.keynum != public_key.keynum {
-        return Err(err_msg(
-            "signature verification failed: checked against wrong key",
-        ));
+        return Err(Error::MismatchedKey {
+            expected: signature.keynum,
+            found: public_key.keynum,
+        });
     }
 
     if signature.verify(&msg, &public_key) {
         println!("Signature Verified");
         Ok(())
     } else {
-        Err(err_msg("signature verification failed"))
+        Err(Error::BadSignature)
     }
 }
 
@@ -176,11 +170,11 @@ fn sign(
     msg_path: &str,
     signature_path: Option<String>,
     embed: bool,
-) -> Result<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let seckey_file = File::open(private_key_path)?;
     let mut secret_key = BufReader::new(seckey_file);
 
-    let serialized_skey = read_base64_file(&private_key_path.to_string_lossy(), &mut secret_key)?;
+    let serialized_skey = read_base64_file(&mut secret_key)?;
     let mut secret_key = PrivateKey::from_buf(&serialized_skey)?;
 
     if secret_key.is_encrypted() {
@@ -218,14 +212,14 @@ fn sign(
     Ok(())
 }
 
-fn read_passphrase(confirm: bool) -> Result<String> {
+fn read_passphrase(confirm: bool) -> Result<String, Box<dyn std::error::Error>> {
     let passphrase = rpassword::prompt_password_stdout("passphrase: ")?;
 
     if confirm {
         let confirm_passphrase = rpassword::prompt_password_stdout("confirm passphrase: ")?;
 
         if passphrase != confirm_passphrase {
-            return Err(err_msg("passwords don't match"));
+            return Err("passwords don't match".into());
         }
     }
 
@@ -237,7 +231,7 @@ fn generate(
     privkey_path: &Path,
     comment: Option<&str>,
     kdfrounds: Option<u32>,
-) -> Result<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let comment = comment.unwrap_or("signify");
 
     let derivation_info = match kdfrounds {
@@ -277,13 +271,18 @@ fn generate(
         .create_new(true)
         .open(pubkey_path)?;
 
-    write_base64_file(&mut file, &pub_comment, &out)
+    write_base64_file(&mut file, &pub_comment, &out)?;
+
+    Ok(())
 }
 
-fn human(res: Result<()>) {
-    if let Err(e) = res {
-        println!("error: {}", e.as_fail());
-        process::exit(1);
+fn human<T>(res: Result<T, Box<dyn std::error::Error>>) -> T {
+    match res {
+        Ok(val) => val,
+        Err(e) => {
+            println!("error: {}", e);
+            process::exit(1);
+        }
     }
 }
 
@@ -304,12 +303,16 @@ fn main() {
         let public_key = unwrap_path("pubkey", args.pubkey);
         let message = unwrap_path("message", args.message_path);
 
-        human(verify(
-            &public_key,
-            &message,
-            args.signature_path,
-            args.embed_message,
-        ));
+        human(
+            verify(
+                &public_key,
+                &message,
+                args.signature_path,
+                args.embed_message,
+            )
+            .map_err(|e| e.into()),
+        );
+
         return;
     }
 
