@@ -106,9 +106,7 @@ impl PrivateKey {
         complete_key[32..].copy_from_slice(&pkey);
         complete_key[..32].copy_from_slice(&skey);
 
-        let digest = Sha512::digest(&complete_key);
-        let mut checksum = [0; 8];
-        checksum.copy_from_slice(&digest.as_ref()[0..8]);
+        let checksum = Self::calculate_checksum(&complete_key);
 
         Ok(Self {
             public_key_alg: PKGALG,
@@ -125,17 +123,33 @@ impl PrivateKey {
     ///
     /// # Errors
     ///
-    /// This only returns an error if the provided password was empty.
+    /// This returns an error if the provided password was empty or if it failed to decrypt the key.
     ///
     /// The wrong password does not cause an error, but instead yields an incorrect key.
     pub fn decrypt_with_password(&mut self, passphrase: &str) -> Result<(), Error> {
-        // TODO: Verify passphrase with checksum.
-        Self::inner_kdf_mix(
-            &mut self.complete_key,
-            self.kdf_rounds,
-            &self.salt,
-            passphrase,
-        )
+        let mut encrypted_key = self.complete_key;
+
+        match Self::inner_kdf_mix(&mut encrypted_key, self.kdf_rounds, &self.salt, passphrase) {
+            Ok(_) => {
+                let current_checksum = Self::calculate_checksum(&encrypted_key);
+
+                // Non-constant time is fine since checksum is public.
+                if current_checksum != self.checksum {
+                    return Err(Error::BadPassword);
+                }
+
+                self.complete_key = encrypted_key;
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn calculate_checksum(complete_key: &[u8; FULL_KEY_LEN]) -> [u8; 8] {
+        let digest = Sha512::digest(complete_key);
+        let mut checksum = [0; 8];
+        checksum.copy_from_slice(&digest.as_ref()[0..8]);
+        checksum
     }
 
     fn inner_kdf_mix(
