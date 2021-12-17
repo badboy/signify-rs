@@ -7,9 +7,27 @@ use crate::{KeyNumber, PrivateKey, PublicKey, Signature};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
+/// A structure that can be converted to and from bytes and the `signify` file format.
 pub trait Codeable: Sized + Sealed {
+    /// Parses a blob of serialized bytes into a structure.
+    ///
+    /// When working with signature files, [`from_base64`](Self::from_base64) should be
+    /// prefered for compatibility with other implementations.
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
+    /// Parses a base64 encoded string into a structure.
+    ///
+    /// Returns the structure and the remaining number of bytes after the structure's end
+    /// inside `encoded`. This can be helpful when dealing with embedded signatures.
+    ///
+    /// The parsing enforces that the `signify` file format is adhered to.
+    ///
+    /// Said format is roughly defined as such:
+    /// ```text
+    /// untrusted comment: <about what the file contains><\n>
+    /// <contents><\n>
+    /// <\n>
+    /// ```
     fn from_base64(encoded: &str) -> Result<(Self, u64), Error> {
         read_base64_contents(encoded).and_then(|(bytes, remaining)| {
             let bytes = Self::from_bytes(&bytes)?;
@@ -17,8 +35,19 @@ pub trait Codeable: Sized + Sealed {
         })
     }
 
+    /// Converts the structure into a blob of bytes and returns them.
+    ///
+    /// When working with signature files, [`to_file_encoding`](Self::to_file_encoding)
+    /// should be prefered for compatibility with other implementations.
     fn as_bytes(&self) -> Result<Vec<u8>, Error>;
 
+    /// Converts the structure into a base64 encoded container and returned the raw bytes.
+    ///
+    /// The provided comment is added as the untrusted comment in the container.
+    ///
+    /// The container format can be seen in the [decoder's documentation].
+    ///
+    /// [decoder's documentation]: Self::from_base64
     fn to_file_encoding(&self, comment: &str) -> Result<Vec<u8>, Error> {
         let bytes = self.as_bytes()?;
 

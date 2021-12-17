@@ -5,26 +5,43 @@ use ed25519_dalek::{Digest, Keypair, Sha512};
 use rand_core::{CryptoRng, RngCore};
 use std::convert::TryInto;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// The public half of a keypair.
+///
+/// You will need this if you are trying to verify a signature.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct PublicKey {
     pub(crate) keynum: KeyNumber,
     pub(crate) key: [u8; PUBLIC_KEY_LEN],
 }
 
 impl PublicKey {
+    /// The public key's bytes.
     pub fn key(&self) -> [u8; PUBLIC_KEY_LEN] {
         self.key
     }
 
+    /// The public key's identifying number.
     pub fn keynum(&self) -> KeyNumber {
         self.keynum
     }
 }
 
+/// Key derivation options available when creating a new key.
 #[derive(Clone)]
 pub enum NewKeyOpts {
+    /// Don't encrypt the secret key.
     NoEncryption,
-    Encrypted { passphrase: String, kdf_rounds: u32 },
+    /// Encrypt the secret key with a passphrase.
+    Encrypted {
+        /// Passphrase to encrypt the key with.
+        passphrase: String,
+        /// The number of key derivation rounds to apply to the password.
+        ///
+        /// If you're unsure of what this should be set to, use [the default].
+        ///
+        /// [the default]: crate::consts::DEFAULT_KDF_ROUNDS
+        kdf_rounds: u32,
+    },
 }
 
 impl std::fmt::Debug for NewKeyOpts {
@@ -40,6 +57,9 @@ impl std::fmt::Debug for NewKeyOpts {
     }
 }
 
+/// The full secret keypair.
+///
+/// You will need this if you want to create signatures.
 #[derive(Clone)]
 pub struct PrivateKey {
     pub(crate) public_key_alg: [u8; 2],
@@ -52,7 +72,12 @@ pub struct PrivateKey {
 }
 
 impl PrivateKey {
-    pub fn derive<R: CryptoRng + RngCore>(
+    /// Generates a new random secret (private) key with the provided options.
+    ///
+    /// # Errors
+    ///
+    /// This only returns an error if the provided password was empty.
+    pub fn generate<R: CryptoRng + RngCore>(
         rng: &mut R,
         derivation_info: NewKeyOpts,
     ) -> Result<Self, Error> {
@@ -96,7 +121,15 @@ impl PrivateKey {
         })
     }
 
+    /// Decrypts a secret key that was stored in encrypted form with the passphrase.
+    ///
+    /// # Errors
+    ///
+    /// This only returns an error if the provided password was empty.
+    ///
+    /// The wrong password does not cause an error, but instead yields an incorrect key.
     pub fn decrypt_with_password(&mut self, passphrase: &str) -> Result<(), Error> {
+        // TODO: Verify passphrase with checksum.
         Self::inner_kdf_mix(
             &mut self.complete_key,
             self.kdf_rounds,
@@ -127,6 +160,7 @@ impl PrivateKey {
         Ok(())
     }
 
+    /// Returns the public half of this secret keypair.
     pub fn public(&self) -> PublicKey {
         // This `unwrap()` gets erased in release mode.
         PublicKey {
@@ -135,22 +169,28 @@ impl PrivateKey {
         }
     }
 
+    /// Returns if this key was stored encrypted.
     pub fn is_encrypted(&self) -> bool {
         self.kdf_rounds != 0
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// A signature
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Signature {
     pub(crate) keynum: KeyNumber,
     pub(crate) sig: [u8; SIG_LEN],
 }
 
 impl Signature {
+    /// The ID of the keypair which created this signature.
+    ///
+    /// This is useful to determine if you have the right key to verify a signature.
     pub fn signer_keynum(&self) -> KeyNumber {
         self.keynum
     }
 
+    /// Returns the signature's raw bytes.
     pub fn signature(&self) -> [u8; SIG_LEN] {
         self.sig
     }
@@ -158,4 +198,38 @@ impl Signature {
     pub(super) fn new(keynum: KeyNumber, sig: [u8; SIG_LEN]) -> Self {
         Self { keynum, sig }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use static_assertions::assert_impl_all;
+    use std::fmt::Debug;
+    use std::hash::Hash;
+
+    assert_impl_all!(
+        PublicKey: Clone,
+        Copy,
+        Debug,
+        Eq,
+        PartialEq,
+        Hash,
+        Send,
+        Sync
+    );
+
+    assert_impl_all!(PrivateKey: Clone, Send, Sync);
+
+    assert_impl_all!(NewKeyOpts: Clone, Debug, Send, Sync);
+
+    assert_impl_all!(
+        Signature: Clone,
+        Copy,
+        Debug,
+        Eq,
+        PartialEq,
+        Hash,
+        Send,
+        Sync
+    );
 }

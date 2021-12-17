@@ -8,6 +8,8 @@
 //!
 //! [signify]: https://github.com/aperezdc/signify
 //! [ed25519]: https://ed25519.cr.yp.to/
+#![warn(missing_docs)]
+#![deny(rustdoc::broken_intra_doc_links)]
 
 pub mod consts;
 pub use consts::KeyNumber;
@@ -15,8 +17,8 @@ pub use consts::KeyNumber;
 mod encoding;
 pub use encoding::Codeable;
 
-pub mod errors;
-use errors::Error;
+mod errors;
+pub use errors::{Error, FormatError};
 
 mod key;
 pub use key::{NewKeyOpts, PrivateKey, PublicKey, Signature};
@@ -24,14 +26,23 @@ pub use key::{NewKeyOpts, PrivateKey, PublicKey, Signature};
 use ed25519_dalek::{Keypair, Signer as _, Verifier as _};
 
 impl PrivateKey {
-    pub fn sign(&self, msg: &[u8]) -> Result<Signature, Error> {
+    /// Signs a message with this secret key and returns the signature.
+    pub fn sign(&self, msg: &[u8]) -> Signature {
+        // This `unwrap` is erased in release mode.
         let keypair = Keypair::from_bytes(&self.complete_key).unwrap();
         let sig = keypair.sign(msg).to_bytes();
-        Ok(Signature::new(self.keynum, sig))
+        Signature::new(self.keynum, sig)
     }
 }
 
 impl PublicKey {
+    /// Use this key to verify that the provided signature for the given message
+    /// is authentic.
+    ///
+    /// # Errors
+    ///
+    /// This method errors if this key's number didn't match the ID of the key
+    /// which created the signature or if the signature couldn't be verified.
     pub fn verify(&self, msg: &[u8], signature: &Signature) -> Result<(), Error> {
         let current_keynum = self.keynum();
         let expected_keynum = signature.keynum;
