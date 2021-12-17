@@ -14,7 +14,6 @@ homepage = "https://github.com/badboy/signify-rs"
 repository = "https://github.com/badboy/signify-rs"
 
 [dependencies]
-byteorder = "1.2"
 bcrypt-pbkdf = "0.7"
 base64 = "0.13"
 ed25519-dalek = { version = "1", default-features = false, features = ["alloc", "u64_backend"] }

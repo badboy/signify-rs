@@ -1,12 +1,11 @@
 use crate::consts::KeyNumber;
 use std::fmt::{self, Display};
-use std::io;
 
 /// The error type which is returned when some `signify` operation fails.
 #[derive(Debug)]
 pub enum Error {
-    /// An I/O error occured working with structure data.
-    Io(io::Error),
+    /// Not enough data was found to parse a structure.
+    InsufficentData,
     /// Parsing a structure's data yielded an error.
     InvalidFormat(FormatError),
     /// The key algorithm used was unknown and unsupported.
@@ -31,7 +30,7 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Io(e) => Display::fmt(e, f),
+            Error::InsufficentData => f.write_str("insufficent data while parsing structure"),
             Error::InvalidFormat(e) => Display::fmt(e, f),
             Error::UnsupportedAlgorithm => f.write_str("encountered unsupported key algorithm"),
             Error::MismatchedKey { expected, found } => {
@@ -86,12 +85,6 @@ impl std::error::Error for FormatError {}
 impl From<FormatError> for Error {
     fn from(e: FormatError) -> Self {
         Self::InvalidFormat(e)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
     }
 }
 
