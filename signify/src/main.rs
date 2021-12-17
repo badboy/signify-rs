@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use libsignify::{
-    consts::DEFAULT_KDF_ROUNDS, errors::Error, Codeable, NewKeyOpts, PrivateKey, PublicKey,
-    Signature,
+    consts::DEFAULT_KDF_ROUNDS, Codeable, Error, NewKeyOpts, PrivateKey, PublicKey, Signature,
 };
 
 use clap::Parser;
@@ -140,7 +139,7 @@ fn sign(
         None => format!("{}.sig", msg_path),
     };
 
-    let sig = secret_key.sign(&msg)?;
+    let sig = secret_key.sign(&msg);
 
     let sig_comment = "signature from signify secret key";
 
@@ -193,7 +192,7 @@ fn generate(
 
     // Store the private key
     let mut rng = rand_core::OsRng {};
-    let private_key = PrivateKey::derive(&mut rng, derivation_info)?;
+    let private_key = PrivateKey::generate(&mut rng, derivation_info)?;
 
     let priv_comment = format!("{} secret key", comment);
     let mut file = OpenOptions::new()
