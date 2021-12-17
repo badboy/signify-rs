@@ -232,6 +232,7 @@ dependencies = [
  "ed25519-dalek",
  "rand_core",
  "static_assertions",
+ "zeroize",
 ]
 
 [[package]]
