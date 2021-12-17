@@ -24,7 +24,7 @@ pub enum Error {
     ///
     /// The contents of the message should not be trusted if this is encountered.
     BadSignature,
-    /// Provided password was empty.
+    /// Provided password was empty or couldn't decrypt a private key.
     BadPassword,
 }
 
