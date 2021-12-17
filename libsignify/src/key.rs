@@ -1,10 +1,11 @@
 use crate::consts::{KeyNumber, FULL_KEY_LEN, KDFALG, PKGALG, PUBLIC_KEY_LEN, SIG_LEN};
 use crate::errors::Error;
 
+use alloc::string::String;
+use core::convert::TryInto;
+use core::ops::DerefMut;
 use ed25519_dalek::{Digest, Sha512};
 use rand_core::{CryptoRng, RngCore};
-use std::convert::TryInto;
-use std::ops::DerefMut;
 use zeroize::{Zeroize, Zeroizing};
 
 /// The public half of a keypair.
@@ -54,8 +55,8 @@ impl Drop for NewKeyOpts {
     }
 }
 
-impl std::fmt::Debug for NewKeyOpts {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for NewKeyOpts {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::NoEncryption => f.write_str("NoEncryption"),
             Self::Encrypted { kdf_rounds, .. } => f
@@ -234,9 +235,9 @@ impl Signature {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::fmt::Debug;
+    use core::hash::Hash;
     use static_assertions::assert_impl_all;
-    use std::fmt::Debug;
-    use std::hash::Hash;
 
     assert_impl_all!(
         PublicKey: Clone,

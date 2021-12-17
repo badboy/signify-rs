@@ -1,5 +1,8 @@
 use crate::consts::KeyNumber;
-use std::fmt::{self, Display};
+use core::fmt::{self, Display};
+
+#[cfg(feature = "std")]
+extern crate std;
 
 /// The error type which is returned when some `signify` operation fails.
 #[derive(Debug)]
@@ -46,6 +49,7 @@ impl Display for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
 /// The error that is returned when a file's contents didn't adhere
@@ -80,6 +84,7 @@ impl Display for FormatError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for FormatError {}
 
 impl From<FormatError> for Error {
@@ -91,10 +96,14 @@ impl From<FormatError> for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::fmt::{Debug, Display};
     use static_assertions::assert_impl_all;
-    use std::error::Error as StdError;
-    use std::fmt::{Debug, Display};
 
-    assert_impl_all!(Error: Debug, Display, StdError, Send, Sync);
-    assert_impl_all!(FormatError: Debug, Display, StdError, Send, Sync);
+    #[cfg(feature = "std")]
+    assert_impl_all!(Error: std::error::Error);
+    #[cfg(feature = "std")]
+    assert_impl_all!(FormatError: std::error::Error);
+
+    assert_impl_all!(Error: Debug, Display, Send, Sync);
+    assert_impl_all!(FormatError: Debug, Display, Send, Sync);
 }

@@ -30,6 +30,7 @@ jobs:
         profile: minimal
         override: true
     - run: cargo test --all
+    - run: cargo test --features std
     - run: make full-cycle
     - run: make integration
     - name: Test comparing against C signify
@@ -57,3 +58,21 @@ jobs:
 
     - name: Docs
       run: cargo doc
+
+  no_std_build:
+    name: "Ensure no_std can build"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+    
+    - name: Build
+      run: |
+        rustup target add thumbv6m-none-eabi
+        cargo build -p libsignify --target thumbv6m-none-eabi

@@ -3,7 +3,7 @@ use crate::consts::{
 };
 use crate::errors::{Error, FormatError};
 use crate::{KeyNumber, PrivateKey, PublicKey, Signature};
-use std::io::Write;
+use alloc::vec::Vec;
 use zeroize::Zeroizing;
 
 /// A structure that can be converted to and from bytes and the `signify` file format.
@@ -53,10 +53,12 @@ pub trait Codeable: Sized + Sealed {
         let mut file_bytes = Vec::new();
 
         file_bytes.extend_from_slice(COMMENT_HEADER.as_bytes());
-        writeln!(file_bytes, "{}", comment).unwrap();
+        file_bytes.extend_from_slice(comment.as_bytes());
+        file_bytes.push(b'\n');
 
         let out = base64::encode(&bytes);
-        writeln!(file_bytes, "{}", out).unwrap();
+        file_bytes.extend_from_slice(out.as_bytes());
+        file_bytes.push(b'\n');
 
         file_bytes
     }
@@ -130,7 +132,7 @@ impl Codeable for PrivateKey {
         buf.read_exact(&mut public_key_alg)?;
         buf.read_exact(&mut kdf_alg)?;
         let kdf_rounds = {
-            let mut bytes = [0u8; std::mem::size_of::<u32>()];
+            let mut bytes = [0u8; core::mem::size_of::<u32>()];
             buf.read_exact(&mut bytes)?;
             u32::from_be_bytes(bytes)
         };
