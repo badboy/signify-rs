@@ -23,13 +23,13 @@ pub use errors::{Error, FormatError};
 mod key;
 pub use key::{NewKeyOpts, PrivateKey, PublicKey, Signature};
 
-use ed25519_dalek::{Keypair, Signer as _, Verifier as _};
+use ed25519_dalek::{Signer as _, Verifier as _};
 
 impl PrivateKey {
     /// Signs a message with this secret key and returns the signature.
     pub fn sign(&self, msg: &[u8]) -> Signature {
         // This `unwrap` is erased in release mode.
-        let keypair = Keypair::from_bytes(&self.complete_key).unwrap();
+        let keypair = ed25519_dalek::Keypair::from_bytes(self.complete_key.as_ref()).unwrap();
         let sig = keypair.sign(msg).to_bytes();
         Signature::new(self.keynum, sig)
     }

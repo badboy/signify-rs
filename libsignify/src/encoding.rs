@@ -6,6 +6,7 @@ use crate::{KeyNumber, PrivateKey, PublicKey, Signature};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
+use zeroize::Zeroizing;
 
 /// A structure that can be converted to and from bytes and the `signify` file format.
 pub trait Codeable: Sized + Sealed {
@@ -110,7 +111,7 @@ impl Codeable for PrivateKey {
         let mut salt = [0; 16];
         let mut checksum = [0; 8];
         let mut keynum = [0; KeyNumber::LEN];
-        let mut complete_key = [0; FULL_KEY_LEN];
+        let mut complete_key = Zeroizing::new([0; FULL_KEY_LEN]);
 
         buf.read_exact(&mut public_key_alg)?;
         buf.read_exact(&mut kdf_alg)?;
@@ -118,7 +119,7 @@ impl Codeable for PrivateKey {
         buf.read_exact(&mut salt)?;
         buf.read_exact(&mut checksum)?;
         buf.read_exact(&mut keynum)?;
-        buf.read_exact(&mut complete_key)?;
+        buf.read_exact(&mut complete_key[..])?;
 
         Ok(Self {
             public_key_alg,
@@ -140,7 +141,7 @@ impl Codeable for PrivateKey {
         w.write_all(&self.salt)?;
         w.write_all(&self.checksum)?;
         w.write_all(self.keynum.as_ref())?;
-        w.write_all(&self.complete_key)?;
+        w.write_all(self.complete_key.as_ref())?;
 
         Ok(w)
     }

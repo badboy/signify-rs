@@ -1,9 +1,11 @@
 use crate::consts::{KeyNumber, FULL_KEY_LEN, KDFALG, PKGALG, PUBLIC_KEY_LEN, SIG_LEN};
 use crate::errors::Error;
 
-use ed25519_dalek::{Digest, Keypair, Sha512};
+use ed25519_dalek::{Digest, Sha512};
 use rand_core::{CryptoRng, RngCore};
 use std::convert::TryInto;
+use std::ops::DerefMut;
+use zeroize::{Zeroize, Zeroizing};
 
 /// The public half of a keypair.
 ///
@@ -44,6 +46,14 @@ pub enum NewKeyOpts {
     },
 }
 
+impl Drop for NewKeyOpts {
+    fn drop(&mut self) {
+        if let NewKeyOpts::Encrypted { passphrase, .. } = self {
+            passphrase.zeroize();
+        }
+    }
+}
+
 impl std::fmt::Debug for NewKeyOpts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -68,7 +78,7 @@ pub struct PrivateKey {
     pub(crate) salt: [u8; 16],
     pub(crate) checksum: [u8; 8],
     pub(super) keynum: KeyNumber,
-    pub(super) complete_key: [u8; FULL_KEY_LEN],
+    pub(super) complete_key: Zeroizing<[u8; FULL_KEY_LEN]>,
 }
 
 impl PrivateKey {
@@ -83,9 +93,9 @@ impl PrivateKey {
     ) -> Result<Self, Error> {
         let keynum = KeyNumber::generate(rng);
 
-        let key_pair = Keypair::generate(rng);
+        let key_pair = ed25519_dalek::Keypair::generate(rng);
 
-        let mut skey = key_pair.secret.to_bytes();
+        let mut skey = Zeroizing::new(key_pair.secret.to_bytes());
         let pkey = key_pair.public.to_bytes();
 
         let mut salt = [0; 16];
@@ -94,17 +104,18 @@ impl PrivateKey {
         let kdf_rounds = if let NewKeyOpts::Encrypted {
             passphrase,
             kdf_rounds,
-        } = derivation_info
+        } = &derivation_info
         {
-            Self::inner_kdf_mix(&mut skey, kdf_rounds, &salt, &passphrase)?;
+            let kdf_rounds = *kdf_rounds;
+            Self::inner_kdf_mix(skey.deref_mut(), kdf_rounds, &salt, passphrase)?;
             kdf_rounds
         } else {
             0
         };
 
-        let mut complete_key = [0u8; FULL_KEY_LEN];
+        let mut complete_key = Zeroizing::new([0u8; FULL_KEY_LEN]);
         complete_key[32..].copy_from_slice(&pkey);
-        complete_key[..32].copy_from_slice(&skey);
+        complete_key[..32].copy_from_slice(skey.as_ref());
 
         let checksum = Self::calculate_checksum(&complete_key);
 
@@ -127,9 +138,14 @@ impl PrivateKey {
     ///
     /// The wrong password does not cause an error, but instead yields an incorrect key.
     pub fn decrypt_with_password(&mut self, passphrase: &str) -> Result<(), Error> {
-        let mut encrypted_key = self.complete_key;
+        let mut encrypted_key = self.complete_key.clone(); // Cheap :)
 
-        match Self::inner_kdf_mix(&mut encrypted_key, self.kdf_rounds, &self.salt, passphrase) {
+        match Self::inner_kdf_mix(
+            &mut encrypted_key[..],
+            self.kdf_rounds,
+            &self.salt,
+            passphrase,
+        ) {
             Ok(_) => {
                 let current_checksum = Self::calculate_checksum(&encrypted_key);
 
