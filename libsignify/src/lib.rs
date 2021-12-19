@@ -62,8 +62,14 @@ impl PublicKey {
             });
         }
 
-        let public_key = ed25519_dalek::PublicKey::from_bytes(&self.key()).unwrap();
-        let signature = ed25519_dalek::Signature::from_bytes(&signature.signature()).unwrap();
+        // Both the key data and signature data are not verified yet,
+        // so the ed25519 math can still go wrong.
+        // In that case all we need to communicate is that it was a bad signature.
+
+        let public_key =
+            ed25519_dalek::PublicKey::from_bytes(&self.key()).map_err(|_| Error::BadSignature)?;
+        let signature = ed25519_dalek::Signature::from_bytes(&signature.signature())
+            .map_err(|_| Error::BadSignature)?;
 
         public_key
             .verify(msg, &signature)
