@@ -63,7 +63,7 @@ impl PublicKey {
         }
 
         let public_key = ed25519_dalek::PublicKey::from_bytes(&self.key()).unwrap();
-        let signature = ed25519_dalek::Signature::new(signature.signature());
+        let signature = ed25519_dalek::Signature::from_bytes(&signature.signature()).unwrap();
 
         public_key
             .verify(msg, &signature)
