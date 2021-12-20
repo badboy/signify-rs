@@ -9,7 +9,7 @@ use libsignify::{
     consts::DEFAULT_KDF_ROUNDS, Codeable, NewKeyOpts, PrivateKey, PublicKey, Signature,
 };
 
-use clap::Parser;
+use clap::{IntoApp, Parser};
 
 #[derive(Parser)]
 #[clap(
@@ -279,6 +279,7 @@ fn main() {
             args.comment.as_deref(),
             rounds,
         ));
+
         return;
     }
 
@@ -292,5 +293,10 @@ fn main() {
             args.signature_path,
             args.embed_message,
         ));
+
+        return;
     }
+
+    // No command specified.
+    println!("{}", Args::into_app().render_usage());
 }
