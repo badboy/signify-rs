@@ -1,12 +1,14 @@
 use crate::consts::KeyNumber;
-use std::fmt::{self, Display};
-use std::io;
+use core::fmt::{self, Display};
+
+#[cfg(feature = "std")]
+extern crate std;
 
 /// The error type which is returned when some `signify` operation fails.
 #[derive(Debug)]
 pub enum Error {
-    /// An I/O error occured working with structure data.
-    Io(io::Error),
+    /// Not enough data was found to parse a structure.
+    InsufficentData,
     /// Parsing a structure's data yielded an error.
     InvalidFormat(FormatError),
     /// The key algorithm used was unknown and unsupported.
@@ -31,7 +33,7 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Io(e) => Display::fmt(e, f),
+            Error::InsufficentData => f.write_str("insufficent data while parsing structure"),
             Error::InvalidFormat(e) => Display::fmt(e, f),
             Error::UnsupportedAlgorithm => f.write_str("encountered unsupported key algorithm"),
             Error::MismatchedKey { expected, found } => {
@@ -47,6 +49,7 @@ impl Display for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
 /// The error that is returned when a file's contents didn't adhere
@@ -81,6 +84,7 @@ impl Display for FormatError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for FormatError {}
 
 impl From<FormatError> for Error {
@@ -89,19 +93,17 @@ impl From<FormatError> for Error {
     }
 }
 
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::fmt::{Debug, Display};
     use static_assertions::assert_impl_all;
-    use std::error::Error as StdError;
-    use std::fmt::{Debug, Display};
 
-    assert_impl_all!(Error: Debug, Display, StdError, Send, Sync);
-    assert_impl_all!(FormatError: Debug, Display, StdError, Send, Sync);
+    #[cfg(feature = "std")]
+    assert_impl_all!(Error: std::error::Error);
+    #[cfg(feature = "std")]
+    assert_impl_all!(FormatError: std::error::Error);
+
+    assert_impl_all!(Error: Debug, Display, Send, Sync);
+    assert_impl_all!(FormatError: Debug, Display, Send, Sync);
 }

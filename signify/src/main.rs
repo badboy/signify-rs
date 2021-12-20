@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::BufReader;
 use std::io::{prelude::*, SeekFrom};
@@ -5,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use libsignify::{
-    consts::DEFAULT_KDF_ROUNDS, Codeable, Error, NewKeyOpts, PrivateKey, PublicKey, Signature,
+    consts::DEFAULT_KDF_ROUNDS, Codeable, NewKeyOpts, PrivateKey, PublicKey, Signature,
 };
 
 use clap::Parser;
@@ -66,21 +67,28 @@ struct Args {
     comment: Option<String>,
 }
 
-fn write_base64_file<C: Codeable>(file: &mut File, comment: &str, data: &C) -> Result<(), Error> {
-    let contents = data.to_file_encoding(comment)?;
+fn write_base64_file<C: Codeable>(
+    file: &mut File,
+    comment: &str,
+    data: &C,
+) -> Result<(), Box<dyn Error>> {
+    let contents = data.to_file_encoding(comment);
     file.write_all(&contents)?;
 
     Ok(())
 }
 
-fn read_base64_file<C: Codeable, R: Read>(reader: &mut BufReader<R>) -> Result<(C, u64), Error> {
+fn read_base64_file<C: Codeable, R: Read>(
+    reader: &mut BufReader<R>,
+) -> Result<(C, u64), Box<dyn Error>> {
     let mut contents = String::with_capacity(1024);
     // Optimization: Read the two lines that have the comment and well structured data
     // instead of the entire file in case the message was large and embedded.
     reader.read_line(&mut contents)?;
     reader.read_line(&mut contents)?;
 
-    C::from_base64(&contents)
+    let read = C::from_base64(&contents)?;
+    Ok(read)
 }
 
 fn verify(
@@ -88,7 +96,7 @@ fn verify(
     msg_path: &str,
     signature_path: Option<String>,
     embed: bool,
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     let mut pubkey_file = BufReader::new(File::open(pubkey_path)?);
     let public_key: PublicKey = read_base64_file(&mut pubkey_file)?.0;
 
@@ -111,9 +119,12 @@ fn verify(
         msg_file.read_to_end(&mut msg)?;
     }
 
-    public_key.verify(&msg, &signature).map(|_| {
-        println!("Signature Verified");
-    })
+    public_key
+        .verify(&msg, &signature)
+        .map(|_| {
+            println!("Signature Verified");
+        })
+        .map_err(Into::into)
 }
 
 fn sign(
@@ -243,15 +254,12 @@ fn main() {
         let public_key = unwrap_path("pubkey", args.pubkey);
         let message = unwrap_path("message", args.message_path);
 
-        human(
-            verify(
-                &public_key,
-                &message,
-                args.signature_path,
-                args.embed_message,
-            )
-            .map_err(|e| e.into()),
-        );
+        human(verify(
+            &public_key,
+            &message,
+            args.signature_path,
+            args.embed_message,
+        ));
 
         return;
     }

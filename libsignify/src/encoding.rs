@@ -3,9 +3,7 @@ use crate::consts::{
 };
 use crate::errors::{Error, FormatError};
 use crate::{KeyNumber, PrivateKey, PublicKey, Signature};
-
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Read, Write};
+use alloc::vec::Vec;
 use zeroize::Zeroizing;
 
 /// A structure that can be converted to and from bytes and the `signify` file format.
@@ -40,7 +38,7 @@ pub trait Codeable: Sized + Sealed {
     ///
     /// When working with signature files, [`to_file_encoding`](Self::to_file_encoding)
     /// should be prefered for compatibility with other implementations.
-    fn as_bytes(&self) -> Result<Vec<u8>, Error>;
+    fn as_bytes(&self) -> Vec<u8>;
 
     /// Converts the structure into a base64 encoded container and returned the raw bytes.
     ///
@@ -49,18 +47,20 @@ pub trait Codeable: Sized + Sealed {
     /// The container format can be seen in the [decoder's documentation].
     ///
     /// [decoder's documentation]: Self::from_base64
-    fn to_file_encoding(&self, comment: &str) -> Result<Vec<u8>, Error> {
-        let bytes = self.as_bytes()?;
+    fn to_file_encoding(&self, comment: &str) -> Vec<u8> {
+        let bytes = self.as_bytes();
 
         let mut file_bytes = Vec::new();
 
-        file_bytes.write_all(COMMENT_HEADER.as_bytes())?;
-        writeln!(file_bytes, "{}", comment)?;
+        file_bytes.extend_from_slice(COMMENT_HEADER.as_bytes());
+        file_bytes.extend_from_slice(comment.as_bytes());
+        file_bytes.push(b'\n');
 
         let out = base64::encode(&bytes);
-        writeln!(file_bytes, "{}", out)?;
+        file_bytes.extend_from_slice(out.as_bytes());
+        file_bytes.push(b'\n');
 
-        Ok(file_bytes)
+        file_bytes
     }
 }
 
@@ -73,11 +73,27 @@ impl Sealed for PublicKey {}
 impl Sealed for PrivateKey {}
 impl Sealed for Signature {}
 
+struct SliceReader<'a>(&'a [u8]);
+
+impl SliceReader<'_> {
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+        if buf.len() > self.0.len() {
+            return Err(Error::InsufficentData);
+        }
+        let (a, b) = self.0.split_at(buf.len());
+
+        buf.copy_from_slice(a);
+
+        self.0 = b;
+        Ok(())
+    }
+}
+
 impl Codeable for PublicKey {
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let mut buf = std::io::Cursor::new(bytes);
+        let mut buf = SliceReader(bytes);
 
-        let mut _pkgalg = [0; 2];
+        let mut _pkgalg = [0u8; 2];
         let mut keynum = [0; KeyNumber::LEN];
         let mut public_key = [0; PUBLIC_KEY_LEN];
 
@@ -91,20 +107,20 @@ impl Codeable for PublicKey {
         })
     }
 
-    fn as_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Vec::new();
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
 
-        w.write_all(&PKGALG)?;
-        w.write_all(self.keynum.as_ref())?;
-        w.write_all(&self.key)?;
+        bytes.extend_from_slice(&PKGALG);
+        bytes.extend_from_slice(self.keynum.as_ref());
+        bytes.extend_from_slice(&self.key);
 
-        Ok(w)
+        bytes
     }
 }
 
 impl Codeable for PrivateKey {
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let mut buf = std::io::Cursor::new(bytes);
+        let mut buf = SliceReader(bytes);
 
         let mut public_key_alg = [0; 2];
         let mut kdf_alg = [0; 2];
@@ -115,7 +131,11 @@ impl Codeable for PrivateKey {
 
         buf.read_exact(&mut public_key_alg)?;
         buf.read_exact(&mut kdf_alg)?;
-        let kdf_rounds = buf.read_u32::<BigEndian>()?;
+        let kdf_rounds = {
+            let mut bytes = [0u8; core::mem::size_of::<u32>()];
+            buf.read_exact(&mut bytes)?;
+            u32::from_be_bytes(bytes)
+        };
         buf.read_exact(&mut salt)?;
         buf.read_exact(&mut checksum)?;
         buf.read_exact(&mut keynum)?;
@@ -132,26 +152,26 @@ impl Codeable for PrivateKey {
         })
     }
 
-    fn as_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Vec::new();
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
 
-        w.write_all(&self.public_key_alg)?;
-        w.write_all(&self.kdf_alg)?;
-        w.write_u32::<BigEndian>(self.kdf_rounds)?;
-        w.write_all(&self.salt)?;
-        w.write_all(&self.checksum)?;
-        w.write_all(self.keynum.as_ref())?;
-        w.write_all(self.complete_key.as_ref())?;
+        bytes.extend_from_slice(&self.public_key_alg);
+        bytes.extend_from_slice(&self.kdf_alg);
+        bytes.extend_from_slice(&self.kdf_rounds.to_be_bytes());
+        bytes.extend_from_slice(&self.salt);
+        bytes.extend_from_slice(&self.checksum);
+        bytes.extend_from_slice(self.keynum.as_ref());
+        bytes.extend_from_slice(self.complete_key.as_ref());
 
-        Ok(w)
+        bytes
     }
 }
 
 impl Codeable for Signature {
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let mut buf = std::io::Cursor::new(bytes);
+        let mut buf = SliceReader(bytes);
 
-        let mut _pkgalg = [0; 2];
+        let mut _pkgalg = [0u8; 2];
         let mut keynum = [0; KeyNumber::LEN];
         let mut sig = [0; SIG_LEN];
 
@@ -165,14 +185,14 @@ impl Codeable for Signature {
         })
     }
 
-    fn as_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Vec::new();
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
 
-        w.write_all(&PKGALG)?;
-        w.write_all(self.keynum.as_ref())?;
-        w.write_all(&self.sig)?;
+        bytes.extend_from_slice(&PKGALG);
+        bytes.extend_from_slice(self.keynum.as_ref());
+        bytes.extend_from_slice(&self.sig);
 
-        Ok(w)
+        bytes
     }
 }
 
@@ -211,5 +231,51 @@ fn read_base64_contents(encoded: &str) -> Result<(Vec<u8>, u64), Error> {
             Ok((data, remaining + 1))
         }
         Some(_) | None => Err(Error::UnsupportedAlgorithm),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_key_codeable() {
+        let key = PublicKey {
+            keynum: KeyNumber::new([3u8; KeyNumber::LEN]),
+            key: [4u8; PUBLIC_KEY_LEN],
+        };
+
+        let bytes = key.as_bytes();
+        let deserialized = PublicKey::from_bytes(&bytes).unwrap();
+        assert_eq!(key, deserialized)
+    }
+
+    #[test]
+    fn private_key_codeable() {
+        let key = PrivateKey {
+            keynum: KeyNumber::new([3u8; KeyNumber::LEN]),
+            public_key_alg: PKGALG,
+            kdf_alg: crate::consts::KDFALG,
+            kdf_rounds: crate::consts::DEFAULT_KDF_ROUNDS,
+            salt: [5u8; 16],
+            checksum: [3u8; 8],
+            complete_key: Zeroizing::new([7u8; FULL_KEY_LEN]),
+        };
+
+        let bytes = key.as_bytes();
+        let deserialized = PrivateKey::from_bytes(&bytes).unwrap();
+        assert_eq!(key, deserialized)
+    }
+
+    #[test]
+    fn signature_codeable() {
+        let sig = Signature {
+            keynum: KeyNumber::new([3u8; KeyNumber::LEN]),
+            sig: [9u8; SIG_LEN],
+        };
+
+        let bytes = sig.as_bytes();
+        let deserialized = Signature::from_bytes(&bytes).unwrap();
+        assert_eq!(sig, deserialized)
     }
 }

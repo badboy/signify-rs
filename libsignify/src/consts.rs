@@ -51,8 +51,8 @@ pub const DEFAULT_KDF_ROUNDS: u32 = 42;
 #[cfg(test)]
 mod tests {
     use super::KeyNumber;
-    use std::fmt::Debug;
-    use std::hash::Hash;
+    use core::fmt::Debug;
+    use core::hash::Hash;
 
     static_assertions::assert_impl_all!(
         KeyNumber: Clone,

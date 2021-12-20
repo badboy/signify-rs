@@ -228,7 +228,6 @@ version = "0.4.2"
 dependencies = [
  "base64",
  "bcrypt-pbkdf",
- "byteorder",
  "ed25519-dalek",
  "rand_core",
  "static_assertions",

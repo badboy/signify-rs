@@ -6,10 +6,18 @@
 //! `libsignify` can verify and create signatures that are interoperable with BSD signify.
 //! You can read more about the ideas and concepts behind `signify` in [Securing OpenBSD From Us To You](https://www.openbsd.org/papers/bsdcan-signify.html).
 //!
+//! This crate is `#![no_std]` by default, but still relies on `liballoc` so your platform must
+//! provide an allocator to use `libsignify`.
+//!
+//! To enable support for `std::error::Error`, enable the `std` feature.
+//!
 //! [signify]: https://github.com/aperezdc/signify
 //! [ed25519]: https://ed25519.cr.yp.to/
 #![warn(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
+#![no_std]
+
+extern crate alloc;
 
 pub mod consts;
 pub use consts::KeyNumber;
