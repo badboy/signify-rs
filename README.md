@@ -1,7 +1,9 @@
 # Signify - Ed25519 signature tool
 
-[![crates.io](http://meritbadge.herokuapp.com/signify)](https://crates.io/crates/signify)
-[![Build Status](https://travis-ci.org/badboy/signify-rs.svg?branch=master)](https://travis-ci.org/badboy/signify-rs)
+[![crates.io](https://img.shields.io/crates/v/signify.svg?style=flat-square)](https://crates.io/crates/signify)
+[![docs.rs docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/libsignify)
+[![License: MIT](https://img.shields.io/github/license/badboy/signify-rs?style=flat-square)](LICENSE)
+[![Build Status](https://img.shields.io/github/workflow/status/badboy/signify-rs/CI/main?style=flat-square)](https://github.com/badboy/signify-rs/actions/workflows/ci.yml)
 
 Create cryptographic signatures for files and verify them.
 This is based on [signify][], the OpenBSD tool to sign and verify signatures on files.
