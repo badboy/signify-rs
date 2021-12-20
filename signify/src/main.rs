@@ -20,28 +20,28 @@ use clap::Parser;
     signify -V [-e] [-x <sigfile>] -p <pubkey> -m <message>"#
 )]
 struct Args {
-    #[clap(short = 'G', about = "Generate a new keypair.")]
+    #[clap(short = 'G', help = "Generate a new keypair.")]
     generate: bool,
-    #[clap(short = 'S', about = "Sign the specified message file.")]
+    #[clap(short = 'S', help = "Sign the specified message file.")]
     sign: bool,
-    #[clap(short = 'V', about = "Verify a message.")]
+    #[clap(short = 'V', help = "Verify a message.")]
     verify: bool,
 
     #[clap(
         short = 'p',
-        about = "Public key produced by -G, and used by -V to check a signature."
+        help = "Public key produced by -G, and used by -V to check a signature."
     )]
     pubkey: Option<PathBuf>,
 
     #[clap(
         short = 's',
-        about = "Secret (private) key produced by -G, and used by -S to sign a message."
+        help = "Secret (private) key produced by -G, and used by -S to sign a message."
     )]
     seckey: Option<PathBuf>,
 
     #[clap(
         short = 'n',
-        about = "Do not ask for a passphrase during key generation. Otherwise, signify will prompt the user for a passphrase to protect the secret key."
+        help = "Do not ask for a passphrase during key generation. Otherwise, signify will prompt the user for a passphrase to protect the secret key."
     )]
     skip_key_encryption: bool,
 
@@ -50,19 +50,19 @@ struct Args {
 
     #[clap(
         short = 'e',
-        about = "When signing, embed the message after the signature. When verifying, extract the message from the signature."
+        help = "When signing, embed the message after the signature. When verifying, extract the message from the signature."
     )]
     embed_message: bool,
 
     #[clap(
         short = 'x',
-        about = "The signature file to create or verify. The default is <message>.sig."
+        help = "The signature file to create or verify. The default is <message>.sig."
     )]
     signature_path: Option<String>,
 
     #[clap(
         short = 'c',
-        about = "Specify the comment to be added during key generation"
+        help = "Specify the comment to be added during key generation"
     )]
     comment: Option<String>,
 }
