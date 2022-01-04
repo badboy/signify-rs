@@ -16,8 +16,8 @@ pub trait Codeable: Sized + Sealed {
 
     /// Parses a base64 encoded string into a structure.
     ///
-    /// Returns the structure and the remaining number of bytes after the structure's end
-    /// inside `encoded`. This can be helpful when dealing with embedded signatures.
+    /// Returns the structure and number of bytes read.
+    /// This can be helpful when dealing with embedded signatures.
     ///
     /// The parsing enforces that the `signify` file format is adhered to.
     ///
@@ -25,12 +25,11 @@ pub trait Codeable: Sized + Sealed {
     /// ```text
     /// untrusted comment: <about what the file contains><\n>
     /// <contents><\n>
-    /// <\n>
     /// ```
     fn from_base64(encoded: &str) -> Result<(Self, u64), Error> {
-        read_base64_contents(encoded).and_then(|(bytes, remaining)| {
+        read_base64_contents(encoded).and_then(|(bytes, bytes_read)| {
             let bytes = Self::from_bytes(&bytes)?;
-            Ok((bytes, remaining))
+            Ok((bytes, bytes_read))
         })
     }
 
@@ -197,7 +196,7 @@ impl Codeable for Signature {
 }
 
 fn read_base64_contents(encoded: &str) -> Result<(Vec<u8>, u64), Error> {
-    let mut lines = encoded.split('\n');
+    let mut lines = encoded.split_terminator('\n');
 
     // Newline ending is implicitly checked by `split`.
     let comment_line = lines.next().ok_or(FormatError::MissingNewline)?;
@@ -215,20 +214,14 @@ fn read_base64_contents(encoded: &str) -> Result<(Vec<u8>, u64), Error> {
 
     let base64_line = lines.next().ok_or(FormatError::MissingNewline)?;
 
-    if base64_line.is_empty() {
-        return Err(FormatError::LineLength.into());
-    }
-
     let data = base64::decode(base64_line.trim_end()).map_err(|_| FormatError::Base64)?;
 
     match data.get(0..2) {
         // Make sure the specified algorithm matches what we support
         Some(alg) if alg == PKGALG => {
-            // Can't panic, we know there are two lines present.
-            let mut newlines = encoded.chars().enumerate().filter(|(_, val)| *val == '\n');
-            let remaining = newlines.nth(1).unwrap().0 as u64;
-
-            Ok((data, remaining + 1))
+            // Return the number of bytes this function ended up parsing, including the two newlines parsed.
+            let bytes_read = comment_line.len() + base64_line.len() + 2;
+            Ok((data, bytes_read as u64))
         }
         Some(_) | None => Err(Error::UnsupportedAlgorithm),
     }
@@ -237,6 +230,7 @@ fn read_base64_contents(encoded: &str) -> Result<(Vec<u8>, u64), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::String;
 
     #[test]
     fn public_key_codeable() {
@@ -247,7 +241,12 @@ mod tests {
 
         let bytes = key.as_bytes();
         let deserialized = PublicKey::from_bytes(&bytes).unwrap();
-        assert_eq!(key, deserialized)
+        assert_eq!(key, deserialized);
+
+        let file_encoding = String::from_utf8(key.to_file_encoding("my comment")).unwrap();
+        let (deserialized, bytes_read) = PublicKey::from_base64(&file_encoding).unwrap();
+        assert_eq!(key, deserialized);
+        assert!(bytes_read > 0);
     }
 
     #[test]
@@ -264,7 +263,12 @@ mod tests {
 
         let bytes = key.as_bytes();
         let deserialized = PrivateKey::from_bytes(&bytes).unwrap();
-        assert_eq!(key, deserialized)
+        assert_eq!(key, deserialized);
+
+        let file_encoding = String::from_utf8(key.to_file_encoding("my comment")).unwrap();
+        let (deserialized, bytes_read) = PrivateKey::from_base64(&file_encoding).unwrap();
+        assert_eq!(key, deserialized);
+        assert!(bytes_read > 0);
     }
 
     #[test]
@@ -276,6 +280,54 @@ mod tests {
 
         let bytes = sig.as_bytes();
         let deserialized = Signature::from_bytes(&bytes).unwrap();
-        assert_eq!(sig, deserialized)
+        assert_eq!(sig, deserialized);
+
+        let file_encoding = String::from_utf8(sig.to_file_encoding("my comment")).unwrap();
+        let (deserialized, bytes_read) = Signature::from_base64(&file_encoding).unwrap();
+        assert_eq!(sig, deserialized);
+        assert!(bytes_read > 0);
+    }
+
+    const BASE64_CASES: &[(&str, Result<(), Error>)] = &[
+        (
+            "untrusted comment: my comment\nRWQgaW4gV29uZGVybGFuZA==\n",
+            Ok(()),
+        ),
+        (
+            "nottherightheader: aaaaaaa",
+            Err(Error::InvalidFormat(FormatError::Comment {
+                expected: COMMENT_HEADER,
+            })),
+        ),
+        (
+            "untrusted comment: makethisverylong",
+            Err(Error::InvalidFormat(FormatError::LineLength)),
+        ),
+        (
+            "untrusted comment: bbbbbb\rbbbbbbbb",
+            Err(Error::InvalidFormat(FormatError::MissingNewline)),
+        ),
+        (
+            "untrusted comment: cccccc\n",
+            Err(Error::InvalidFormat(FormatError::MissingNewline)),
+        ),
+        (
+            "untrusted comment: dddddd\nRWQgaW4gV2ZGVybGFuZA==",
+            Err(Error::InvalidFormat(FormatError::Base64)),
+        ),
+        (
+            "untrusted comment: eeeeee\nUGF0IGluIFdvbmRlcmxhbmQ=",
+            Err(Error::UnsupportedAlgorithm),
+        ),
+    ];
+
+    #[test]
+    fn base64_reading() {
+        for (encoded, expected) in BASE64_CASES {
+            let encoded = encoded.replace("makethisverylong", &"a".repeat(1025));
+            let result = read_base64_contents(&encoded).map(|_| ());
+
+            assert_eq!(result, *expected, "{} produced the wrong result", encoded);
+        }
     }
 }

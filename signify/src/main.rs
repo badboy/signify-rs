@@ -107,12 +107,14 @@ fn verify(
 
     let mut sig_data = BufReader::new(File::open(&signature_path)?);
 
-    let (signature, msg_data_pos): (Signature, u64) = read_base64_file(&mut sig_data)?;
+    let (signature, bytes_read): (Signature, u64) = read_base64_file(&mut sig_data)?;
 
     let mut msg = vec![];
 
     if embed {
-        sig_data.seek(SeekFrom::Start(msg_data_pos))?;
+        // Jump around past the well structured signify message to the
+        // embedded contents.
+        sig_data.seek(SeekFrom::Start(bytes_read))?;
         sig_data.read_to_end(&mut msg)?;
     } else {
         let mut msg_file = File::open(msg_path)?;
