@@ -44,7 +44,7 @@ impl Display for Error {
             )
             }
             Error::BadSignature => f.write_str("signature verification failed"),
-            Error::BadPassword => f.write_str("password was empty"),
+            Error::BadPassword => f.write_str("password was empty or incorrect for key"),
         }
     }
 }

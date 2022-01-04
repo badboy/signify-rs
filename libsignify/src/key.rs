@@ -241,7 +241,11 @@ impl Signature {
 
 #[cfg(test)]
 mod tests {
+    use crate::consts::DEFAULT_KDF_ROUNDS;
+    use crate::test_utils::StepperRng;
+
     use super::*;
+    use alloc::string::ToString;
     use core::fmt::Debug;
     use core::hash::Hash;
     use static_assertions::assert_impl_all;
@@ -271,4 +275,153 @@ mod tests {
         Send,
         Sync
     );
+
+    const PASSPHRASE: &str = "muchsecret";
+
+    #[test]
+    fn check_key_generation_passphrase_concealment() {
+        let new_opts = NewKeyOpts::Encrypted {
+            passphrase: PASSPHRASE.to_string(),
+            kdf_rounds: DEFAULT_KDF_ROUNDS,
+        };
+        let debug_output = alloc::format!("{:?}", new_opts);
+        assert!(!debug_output.contains(PASSPHRASE));
+    }
+
+    #[test]
+    fn check_simple_private_key_getters() {
+        let mut rng = StepperRng::default();
+        let unencrypted_key = PrivateKey::generate(&mut rng, NewKeyOpts::NoEncryption).unwrap();
+
+        assert_eq!(
+            unencrypted_key.public().key(),
+            unencrypted_key.complete_key[32..]
+        ); // Ed25519 keys are private || public.
+
+        assert!(!unencrypted_key.is_encrypted());
+
+        let encrypted_key = PrivateKey::generate(
+            &mut rng,
+            NewKeyOpts::Encrypted {
+                passphrase: PASSPHRASE.to_string(),
+                kdf_rounds: DEFAULT_KDF_ROUNDS,
+            },
+        )
+        .unwrap();
+        assert!(encrypted_key.is_encrypted());
+    }
+
+    #[test]
+    fn check_key_generation_opts() {
+        let mut rng = StepperRng::default();
+        let unencrypted_key = PrivateKey::generate(&mut rng, NewKeyOpts::NoEncryption).unwrap();
+        assert_eq!(unencrypted_key.kdf_rounds, 0); // `0` represents not encrypted.
+        assert_eq!(unencrypted_key.kdf_alg, KDFALG);
+        assert_eq!(unencrypted_key.public_key_alg, PKGALG);
+
+        let encrypted_key_1 = PrivateKey::generate(
+            &mut rng,
+            NewKeyOpts::Encrypted {
+                passphrase: PASSPHRASE.to_string(),
+                kdf_rounds: DEFAULT_KDF_ROUNDS,
+            },
+        )
+        .unwrap();
+        assert_eq!(encrypted_key_1.kdf_rounds, DEFAULT_KDF_ROUNDS);
+        assert_eq!(encrypted_key_1.kdf_alg, KDFALG);
+        assert_eq!(encrypted_key_1.public_key_alg, PKGALG);
+
+        // Check non-standard KDF rounds are respected.
+        let encrypted_key_2 = PrivateKey::generate(
+            &mut rng,
+            NewKeyOpts::Encrypted {
+                passphrase: PASSPHRASE.to_string(),
+                kdf_rounds: 7,
+            },
+        )
+        .unwrap();
+        assert_eq!(encrypted_key_2.kdf_rounds, 7);
+        assert_eq!(encrypted_key_1.kdf_alg, KDFALG);
+        assert_eq!(encrypted_key_2.public_key_alg, PKGALG);
+
+        // Salts should be random.
+        assert_ne!(encrypted_key_1.salt, encrypted_key_2.salt);
+        // Key numbers should be unique.
+        assert_ne!(encrypted_key_1.keynum, encrypted_key_2.keynum);
+        // The keys themselves should be random and unique.
+        assert_ne!(encrypted_key_1.complete_key, encrypted_key_2.complete_key);
+        assert_ne!(encrypted_key_1.checksum, encrypted_key_2.checksum);
+    }
+
+    struct ConstantRng;
+
+    impl ConstantRng {
+        const VALUE: u8 = 3;
+    }
+
+    impl rand_core::RngCore for ConstantRng {
+        fn next_u32(&mut self) -> u32 {
+            Self::VALUE.into()
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            Self::VALUE.into()
+        }
+
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            for b in dest {
+                *b = Self::VALUE;
+            }
+        }
+
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+            for b in dest {
+                *b = Self::VALUE;
+            }
+
+            Ok(())
+        }
+    }
+
+    impl rand_core::CryptoRng for ConstantRng {}
+
+    #[test]
+    fn check_key_encryption_roundtrip() {
+        const ACTUAL_KEY: [u8; 32] = [ConstantRng::VALUE; 32];
+        let mut rng = ConstantRng;
+
+        let mut encrypted_key = PrivateKey::generate(
+            &mut rng,
+            NewKeyOpts::Encrypted {
+                passphrase: PASSPHRASE.to_string(),
+                kdf_rounds: DEFAULT_KDF_ROUNDS,
+            },
+        )
+        .unwrap();
+
+        // Easy check that its actually being encrypted when requested.
+        assert_ne!(encrypted_key.complete_key.as_ref()[..32], ACTUAL_KEY);
+
+        // ... and then make sure it properly decrypts.
+        encrypted_key.decrypt_with_password(PASSPHRASE).unwrap();
+        assert_eq!(encrypted_key.complete_key.as_ref()[..32], ACTUAL_KEY);
+    }
+
+    #[test]
+    fn check_wrong_passphrase_errors() {
+        let mut rng = StepperRng::default();
+        let mut encrypted_key = PrivateKey::generate(
+            &mut rng,
+            NewKeyOpts::Encrypted {
+                passphrase: PASSPHRASE.to_string(),
+                kdf_rounds: DEFAULT_KDF_ROUNDS,
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(
+            encrypted_key.decrypt_with_password("wrong"),
+            Err(Error::BadPassword)
+        ));
+    }
 }
