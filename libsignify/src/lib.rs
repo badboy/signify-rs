@@ -79,3 +79,84 @@ impl PublicKey {
             .map_err(|_| Error::BadSignature)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::StepperRng;
+
+    const MSG: &[u8] = b"signify!!!";
+
+    #[test]
+    fn check_signature_roundtrip() {
+        let mut rng = StepperRng::default();
+
+        let secret_key = PrivateKey::generate(&mut rng, NewKeyOpts::NoEncryption).unwrap();
+        let public_key = secret_key.public();
+        let signature = secret_key.sign(MSG);
+
+        assert_eq!(signature.signer_keynum(), public_key.keynum());
+
+        assert!(public_key.verify(MSG, &signature).is_ok());
+    }
+
+    #[test]
+    fn check_signature_mismatched_keynum() {
+        let mut rng = StepperRng::default();
+
+        let secret_key = PrivateKey::generate(&mut rng, NewKeyOpts::NoEncryption).unwrap();
+        let public_key = secret_key.public();
+        let mut signature = secret_key.sign(MSG);
+
+        let wrong_keynum = KeyNumber::new([0u8; KeyNumber::LEN]);
+
+        signature.keynum = wrong_keynum;
+
+        assert_eq!(
+            public_key.verify(MSG, &signature),
+            Err(Error::MismatchedKey {
+                expected: wrong_keynum,
+                found: public_key.keynum()
+            })
+        )
+    }
+
+    #[test]
+    fn check_malformed_publickey() {
+        let mut rng = StepperRng::default();
+
+        let secret_key = PrivateKey::generate(&mut rng, NewKeyOpts::NoEncryption).unwrap();
+        let mut public_key = secret_key.public();
+        let signature = secret_key.sign(MSG);
+
+        // Mess the public key up so its not a curve point anymore.
+        public_key.key = [
+            136, 95, 131, 189, 208, 168, 196, 163, 180, 145, 35, 42, 113, 108, 172, 178, 62, 108,
+            7, 205, 20, 215, 240, 50, 149, 237, 146, 32, 181, 180, 91, 255,
+        ];
+
+        assert_eq!(public_key.verify(MSG, &signature), Err(Error::BadSignature));
+    }
+
+    #[test]
+    fn check_malformed_signature() {
+        let mut rng = StepperRng::default();
+
+        let secret_key = PrivateKey::generate(&mut rng, NewKeyOpts::NoEncryption).unwrap();
+        let public_key = secret_key.public();
+        let mut signature = secret_key.sign(MSG);
+
+        let real_sig = signature.sig;
+
+        // Make the signature fail the basic validations.
+        signature.sig = [255u8; consts::SIG_LEN];
+
+        assert_eq!(public_key.verify(MSG, &signature), Err(Error::BadSignature));
+
+        signature.sig = real_sig;
+        // Slightly modify the signature so that full verification fails.
+        signature.sig[20] = 3;
+
+        assert_eq!(public_key.verify(MSG, &signature), Err(Error::BadSignature));
+    }
+}
