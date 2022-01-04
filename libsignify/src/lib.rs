@@ -31,6 +31,9 @@ pub use errors::{Error, FormatError};
 mod key;
 pub use key::{NewKeyOpts, PrivateKey, PublicKey, Signature};
 
+#[cfg(test)]
+pub(crate) mod test_utils;
+
 use ed25519_dalek::{Signer as _, Verifier as _};
 
 impl PrivateKey {
