@@ -3,7 +3,6 @@ use crate::errors::Error;
 
 use alloc::string::String;
 use core::convert::TryInto;
-use core::ops::DerefMut;
 use ed25519_dalek::{Digest, Sha512};
 use rand_core::{CryptoRng, RngCore};
 use zeroize::{Zeroize, Zeroizing};
@@ -68,6 +67,8 @@ impl core::fmt::Debug for NewKeyOpts {
     }
 }
 
+struct UnencryptedKey(Zeroizing<[u8; FULL_KEY_LEN]>);
+
 /// The full secret keypair.
 ///
 /// You will need this if you want to create signatures.
@@ -97,8 +98,17 @@ impl PrivateKey {
 
         let key_pair = ed25519_dalek::Keypair::generate(rng);
 
-        let mut skey = Zeroizing::new(key_pair.secret.to_bytes());
-        let pkey = key_pair.public.to_bytes();
+        let mut complete_key = {
+            let skey = Zeroizing::new(key_pair.secret.to_bytes());
+            let pkey = key_pair.public.to_bytes();
+
+            let mut complete_key = Zeroizing::new([0u8; FULL_KEY_LEN]);
+            complete_key[..32].copy_from_slice(skey.as_ref());
+            complete_key[32..].copy_from_slice(&pkey);
+            UnencryptedKey(complete_key)
+        };
+
+        let checksum = Self::calculate_checksum(&complete_key);
 
         let mut salt = [0; 16];
         rng.fill_bytes(&mut salt);
@@ -109,17 +119,11 @@ impl PrivateKey {
         } = &derivation_info
         {
             let kdf_rounds = *kdf_rounds;
-            Self::inner_kdf_mix(skey.deref_mut(), kdf_rounds, &salt, passphrase)?;
+            Self::inner_kdf_mix(&mut complete_key.0[..32], kdf_rounds, &salt, passphrase)?;
             kdf_rounds
         } else {
             0
         };
-
-        let mut complete_key = Zeroizing::new([0u8; FULL_KEY_LEN]);
-        complete_key[32..].copy_from_slice(&pkey);
-        complete_key[..32].copy_from_slice(skey.as_ref());
-
-        let checksum = Self::calculate_checksum(&complete_key);
 
         Ok(Self {
             public_key_alg: PKGALG,
@@ -128,7 +132,8 @@ impl PrivateKey {
             salt,
             checksum,
             keynum,
-            complete_key,
+            // The state of the key doesn't matter at this stage.
+            complete_key: complete_key.0,
         })
     }
 
@@ -137,34 +142,36 @@ impl PrivateKey {
     /// # Errors
     ///
     /// This returns an error if the provided password was empty or if it failed to decrypt the key.
-    ///
-    /// The wrong password does not cause an error, but instead yields an incorrect key.
     pub fn decrypt_with_password(&mut self, passphrase: &str) -> Result<(), Error> {
         let mut encrypted_key = self.complete_key.clone(); // Cheap :)
 
         match Self::inner_kdf_mix(
-            &mut encrypted_key[..],
+            &mut encrypted_key[..32],
             self.kdf_rounds,
             &self.salt,
             passphrase,
         ) {
             Ok(_) => {
-                let current_checksum = Self::calculate_checksum(&encrypted_key);
+                // Since the decryption worked, its now "unencrypted", even if the passphrase was wrong
+                // and the value is garbage.
+                let decrypted_key = UnencryptedKey(encrypted_key);
+                let current_checksum = Self::calculate_checksum(&decrypted_key);
 
                 // Non-constant time is fine since checksum is public.
                 if current_checksum != self.checksum {
                     return Err(Error::BadPassword);
                 }
 
-                self.complete_key = encrypted_key;
+                // Confirmed the decryption worked, mutating the key structure.
+                self.complete_key = decrypted_key.0;
                 Ok(())
             }
             Err(e) => Err(e),
         }
     }
 
-    fn calculate_checksum(complete_key: &[u8; FULL_KEY_LEN]) -> [u8; 8] {
-        let digest = Sha512::digest(complete_key);
+    fn calculate_checksum(complete_key: &UnencryptedKey) -> [u8; 8] {
+        let digest = Sha512::digest(complete_key.0.as_ref());
         let mut checksum = [0; 8];
         checksum.copy_from_slice(&digest.as_ref()[0..8]);
         checksum
