@@ -1,3 +1,10 @@
+# v0.5 (unreleased)
+
+* Split signify into a standalone library, available as `libsignify`, a `#![no_std]` library that implements the `signify` specification.
+* Sweeping dependency updates and replacements, which also increase target compatibility.
+* Improved CLI usability
+* Complete rewrite of the crate's functionality.
+
 # v0.4.1 (2018-01-11)
 
 * Exclude temporary files from crate
