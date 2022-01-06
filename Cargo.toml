@@ -3,3 +3,8 @@ members = [
     "libsignify",
     "signify",
 ]
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
