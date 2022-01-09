@@ -20,50 +20,37 @@ use clap::{IntoApp, Parser};
     signify -V [-e] [-x <sigfile>] -p <pubkey> -m <message>"#
 )]
 struct Args {
-    #[clap(short = 'G', help = "Generate a new keypair.")]
+    /// Generate a new keypair
+    #[clap(short = 'G')]
     generate: bool,
-    #[clap(short = 'S', help = "Sign the specified message file.")]
+    /// Sign the specified message file
+    #[clap(short = 'S')]
     sign: bool,
-    #[clap(short = 'V', help = "Verify a message.")]
+    /// Verify a message
+    #[clap(short = 'V')]
     verify: bool,
-
-    #[clap(
-        short = 'p',
-        help = "Public key produced by -G, and used by -V to check a signature."
-    )]
+    /// Public key produced by -G, and used by -V to check a signature
+    #[clap(short, parse(from_os_str))]
     pubkey: Option<PathBuf>,
-
-    #[clap(
-        short = 's',
-        help = "Secret (private) key produced by -G, and used by -S to sign a message."
-    )]
+    /// Secret (private) key produced by -G, and used by -S to sign a message
+    #[clap(short, parse(from_os_str))]
     seckey: Option<PathBuf>,
-
-    #[clap(
-        short = 'n',
-        help = "Do not ask for a passphrase during key generation. Otherwise, signify will prompt the user for a passphrase to protect the secret key."
-    )]
+    /// Do not ask for a passphrase during key generation. Otherwise, signify
+    /// will prompt the user for a passphrase to protect the secret key
+    #[clap(short = 'n')]
     skip_key_encryption: bool,
-
-    #[clap(short = 'm')]
-    message_path: Option<String>,
-
-    #[clap(
-        short = 'e',
-        help = "When signing, embed the message after the signature. When verifying, extract the message from the signature."
-    )]
+    /// The file containing the message to create a signature over
+    #[clap(short, parse(from_os_str))]
+    message_path: Option<PathBuf>,
+    /// When signing, embed the message after the signature. When verifying,
+    /// extract the message from the signature
+    #[clap(short)]
     embed_message: bool,
-
-    #[clap(
-        short = 'x',
-        help = "The signature file to create or verify. The default is <message>.sig."
-    )]
-    signature_path: Option<String>,
-
-    #[clap(
-        short = 'c',
-        help = "Specify the comment to be added during key generation"
-    )]
+    /// The signature file to create or verify. The default is <message>.sig
+    #[clap(short = 'x', parse(from_os_str))]
+    signature_path: Option<PathBuf>,
+    /// Specify the comment to be added during key generation
+    #[clap(short)]
     comment: Option<String>,
 }
 
@@ -93,8 +80,8 @@ fn read_base64_file<C: Codeable, R: Read>(
 
 fn verify(
     pubkey_path: &Path,
-    msg_path: &str,
-    signature_path: Option<String>,
+    msg_path: &Path,
+    signature_path: Option<PathBuf>,
     embed: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut pubkey_file = BufReader::new(File::open(pubkey_path)?);
@@ -102,7 +89,7 @@ fn verify(
 
     let signature_path = match signature_path {
         Some(path) => path,
-        None => format!("{}.sig", msg_path),
+        None => msg_path.with_extension("sig"),
     };
 
     let mut sig_data = BufReader::new(File::open(&signature_path)?);
@@ -131,8 +118,8 @@ fn verify(
 
 fn sign(
     private_key_path: &Path,
-    msg_path: &str,
-    signature_path: Option<String>,
+    msg_path: &Path,
+    signature_path: Option<PathBuf>,
     embed: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut secret_key = BufReader::new(File::open(private_key_path)?);
@@ -149,7 +136,7 @@ fn sign(
 
     let signature_path = match signature_path {
         Some(path) => path,
-        None => format!("{}.sig", msg_path),
+        None => msg_path.with_extension("sig"),
     };
 
     let sig = secret_key.sign(&msg);
