@@ -65,6 +65,38 @@ fn write_base64_file<C: Codeable>(
     Ok(())
 }
 
+// Annoyingly `p.with_extension("sig")` will turn `foo.bar` into `foo.sig`. This
+// avoids that issue (and without requiring the path be UTF-8), but is kind of
+// tedious. Note that `ext` should be something like `"sig"` and not `".sig"`.
+fn add_extension(p: impl Into<PathBuf>, ext: &str) -> PathBuf {
+    use std::ffi::OsString;
+    let mut path: PathBuf = p.into();
+    let mut name: OsString = path.file_name().unwrap_or_default().to_owned();
+    name.push(".");
+    name.push(ext);
+    path.set_file_name(name);
+    path
+}
+
+#[test]
+fn test_add_extension() {
+    #[track_caller]
+    fn check(p: impl AsRef<Path>, e: &str, want: impl AsRef<Path>) {
+        let p = p.as_ref();
+        let want = want.as_ref();
+        assert_eq!(add_extension(p, e), want);
+    }
+    check("foo", "sig", "foo.sig");
+    check("foo.bar.baz", "sig", "foo.bar.baz.sig");
+    check("/a/b/c/foo.bar.baz", "sig", "/a/b/c/foo.bar.baz.sig");
+    check("/a/b/c/foo", "sig", "/a/b/c/foo.sig");
+
+    check("foo.bar.baz", "a.b", "foo.bar.baz.a.b");
+    check("foo", "a.b", "foo.a.b");
+    check("/a/b/c/foo.bar.baz", "a.b", "/a/b/c/foo.bar.baz.a.b");
+    check("/a/b/c/foo", "a.b", "/a/b/c/foo.a.b");
+}
+
 fn read_base64_file<C: Codeable, R: Read>(
     reader: &mut BufReader<R>,
 ) -> Result<(C, u64), Box<dyn Error>> {
@@ -89,7 +121,7 @@ fn verify(
 
     let signature_path = match signature_path {
         Some(path) => path,
-        None => msg_path.with_extension("sig"),
+        None => add_extension(msg_path, "sig"),
     };
 
     let mut sig_data = BufReader::new(File::open(&signature_path)?);
@@ -136,7 +168,7 @@ fn sign(
 
     let signature_path = match signature_path {
         Some(path) => path,
-        None => msg_path.with_extension("sig"),
+        None => add_extension(msg_path, "sig"),
     };
 
     let sig = secret_key.sign(&msg);
