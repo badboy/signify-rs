@@ -39,7 +39,7 @@ struct Args {
     /// will prompt the user for a passphrase to protect the secret key
     #[clap(short = 'n')]
     skip_key_encryption: bool,
-    /// The file containing the message to create a signature over
+    /// The file containing the message to create a signature over or to the one to verify with an existing signature
     #[clap(short, parse(from_os_str))]
     message_path: Option<PathBuf>,
     /// When signing, embed the message after the signature. When verifying,
