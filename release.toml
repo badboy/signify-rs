@@ -1,0 +1,10 @@
+consolidate-commits = true
+consolidate-pushes = true
+shared-version = true
+tag-name = "v{{version}}"
+pre-release-replacements = [
+    {file="../CHANGELOG.md", search="Unreleased", replace="{{version}}"},
+    {file="../CHANGELOG.md", search="\\.\\.\\.main", replace="...v{{version}}", exactly=1},
+    {file="../CHANGELOG.md", search="ReleaseDate", replace="{{date}}"},
+    {file="../CHANGELOG.md", search="\\A", replace="# [Unreleased](https://github.com/badboy/signify-rs/compare/v{{version}}...main) - ReleaseDate\n\n", exactly=1}
+]
