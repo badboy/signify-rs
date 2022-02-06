@@ -1,6 +1,6 @@
 [package]
 name = "signify"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Jan-Erik Rediger <janerik@fnordig.de>", "BlackHoleFox <blackholefoxdev@gmail.com>"]
 edition = "2021"
 
