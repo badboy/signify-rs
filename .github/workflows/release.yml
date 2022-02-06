@@ -1,6 +1,6 @@
 # Based on https://github.com/starship/starship/blob/master/.github/workflows/deploy.yml
 
-name: Deploy
+name: Release
 on:
   push:
     tags:
