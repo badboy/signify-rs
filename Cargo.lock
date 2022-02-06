@@ -224,7 +224,7 @@ checksum = "fbe5e23404da5b4f555ef85ebed98fb4083e55a00c317800bc2a50ede9f3d219"
 
 [[package]]
 name = "libsignify"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "bcrypt-pbkdf",
@@ -383,7 +383,7 @@ checksum = "02658e48d89f2bec991f9a78e69cfa4c316f8d6a6c4ec12fae1aeb263d486788"
 
 [[package]]
 name = "signify"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "clap",
  "libsignify",
