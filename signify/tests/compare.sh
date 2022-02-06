@@ -36,7 +36,7 @@ make clean all \
   WGET="wget --no-check-certificate"
 popd
 
-SIGNIFY=$(pwd)/$TMPDIR/signify/signify
+SIGNIFY=$(pwd)/signify/signify
 
 echo "==> Testing Rust Generate/Sign, C Verify"
 cargo_run -G -n -p $PUB -s $PRIV
