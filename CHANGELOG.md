@@ -1,4 +1,6 @@
-# [Unreleased](https://github.com/badboy/signify-rs/compare/v0.4.1...main) - ReleaseDate
+# Unreleased
+
+[Full changelog](https://github.com/badboy/signify-rs/compare/v0.4.1...main)
 
 * Split signify into a standalone library, available as `libsignify`, a `#![no_std]` library that implements the `signify` specification.
   Note: The library API is still unstable and might change in the next release.
