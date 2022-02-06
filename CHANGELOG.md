@@ -1,6 +1,10 @@
 # Unreleased
 
-[Full changelog](https://github.com/badboy/signify-rs/compare/v0.5.0...main)
+[Full changelog](https://github.com/badboy/signify-rs/compare/v0.5.1...main)
+
+# 0.5.1 (2022-02-06)
+
+[Full changelog](https://github.com/badboy/signify-rs/compare/v0.5.0...v0.5.1)
 
 * Unchanged re-release of 0.5.0 to fix the binary deploy
 
