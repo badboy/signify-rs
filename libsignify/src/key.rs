@@ -173,7 +173,7 @@ impl PrivateKey {
     fn calculate_checksum(complete_key: &UnencryptedKey) -> [u8; 8] {
         let digest = Sha512::digest(complete_key.0.as_ref());
         let mut checksum = [0; 8];
-        checksum.copy_from_slice(&digest.as_ref()[0..8]);
+        checksum.copy_from_slice(&digest.as_slice()[0..8]);
         checksum
     }
 
