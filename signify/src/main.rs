@@ -190,10 +190,10 @@ fn sign(
 }
 
 fn read_passphrase(confirm: bool) -> Result<String, Box<dyn std::error::Error>> {
-    let passphrase = rpassword::prompt_password_stdout("passphrase: ")?;
+    let passphrase = rpassword::prompt_password("passphrase: ")?;
 
     if confirm {
-        let confirm_passphrase = rpassword::prompt_password_stdout("confirm passphrase: ")?;
+        let confirm_passphrase = rpassword::prompt_password("confirm passphrase: ")?;
 
         if passphrase != confirm_passphrase {
             return Err("passwords don't match".into());
