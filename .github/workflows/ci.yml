@@ -30,6 +30,7 @@ jobs:
         profile: minimal
         override: true
     - run: cargo test --all
+    - run: cargo test --doc
     - run: cargo test --features std
     - run: make full-cycle
     - run: make integration
