@@ -1,7 +1,7 @@
 # Signify - Ed25519 signature tool
 
 [![crates.io](https://img.shields.io/crates/v/signify.svg?style=flat-square)](https://crates.io/crates/signify)
-[![docs.rs docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/libsignify)
+[![docs.rs docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)]([documentation])
 [![License: MIT](https://img.shields.io/github/license/badboy/signify-rs?style=flat-square)](LICENSE)
 [![Build Status](https://img.shields.io/github/workflow/status/badboy/signify-rs/CI/main?style=flat-square)](https://github.com/badboy/signify-rs/actions/workflows/ci.yml)
 
@@ -20,6 +20,7 @@ cargo install signify
 ```
 
 ## Usage
+The CLI is designed to be compatible with the reference implementation and accepts the same command line flags as it.
 
 Create a key pair:
 
@@ -38,6 +39,8 @@ Verify the signature:
 ```
 signify -V -p pubkey -m README.md
 ```
+
+To see how to use `libsignify`, check out the `examples/` directory or the [documentation].
 
 ## Testing
 
@@ -60,5 +63,6 @@ The complete test suite can be conveniently ran with `make test`.
 
 MIT. See [LICENSE](LICENSE).
 
+[documentation]: https://docs.rs/libsignify
 [signify]: https://github.com/aperezdc/signify
 [ed25519]: https://ed25519.cr.yp.to/

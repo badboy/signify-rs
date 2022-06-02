@@ -11,6 +11,12 @@
 //!
 //! To enable support for `std::error::Error`, enable the `std` feature.
 //!
+//! ## Examples
+//! A simple CLI that verifies some example data:
+//! ```rust
+#![doc = include_str!("../examples/basic.rs")]
+//! ```
+//!
 //! [signify]: https://github.com/aperezdc/signify
 //! [ed25519]: https://ed25519.cr.yp.to/
 #![warn(missing_docs)]
