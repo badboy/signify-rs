@@ -1,6 +1,10 @@
 # Unreleased
 
-[Full changelog](https://github.com/badboy/signify-rs/compare/v0.5.2...main)
+[Full changelog](https://github.com/badboy/signify-rs/compare/v0.5.3...main)
+
+# 0.5.3 (2022-06-04)
+
+[Full changelog](https://github.com/badboy/signify-rs/compare/v0.5.2...v0.5.3)
 
 # 0.5.2 (2022-02-06)
 

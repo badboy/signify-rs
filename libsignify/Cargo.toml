@@ -1,6 +1,6 @@
 [package]
 name = "libsignify"
-version = "0.5.2"
+version = "0.5.3"
 authors = ["Jan-Erik Rediger <janerik@fnordig.de>", "BlackHoleFox <blackholefoxdev@gmail.com>"]
 edition = "2021"
 
