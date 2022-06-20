@@ -162,11 +162,30 @@ impl PrivateKey {
                     return Err(Error::BadPassword);
                 }
 
-                // Confirmed the decryption worked, mutating the key structure.
+                PrivateKey::verify_keypair(&decrypted_key.0)?;
+                // Confirmed the decryption worked and the keys are matching.
                 self.complete_key = decrypted_key.0;
+
                 Ok(())
             }
             Err(e) => Err(e),
+        }
+    }
+
+    pub(crate) fn into_keypair(
+        complete_key: &[u8; FULL_KEY_LEN],
+    ) -> Result<ed25519_dalek::Keypair, Error> {
+        // If the public key fails to decompress, it for sure isn't the correctly associated public key.
+        ed25519_dalek::Keypair::from_bytes(complete_key).map_err(|_| Error::WrongKey)
+    }
+
+    pub(crate) fn verify_keypair(keypair_bytes: &[u8; FULL_KEY_LEN]) -> Result<(), Error> {
+        let keypair = PrivateKey::into_keypair(keypair_bytes)?;
+        let real_public: ed25519_dalek::PublicKey = (&keypair.secret).into();
+        if real_public == keypair.public {
+            Ok(())
+        } else {
+            Err(Error::WrongKey)
         }
     }
 

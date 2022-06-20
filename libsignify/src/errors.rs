@@ -20,6 +20,8 @@ pub enum Error {
         /// ID of the key that tried to verify the signature, but was wrong.
         found: KeyNumber,
     },
+    /// The wrong public key was associated with the full keypair.
+    WrongKey,
     /// The signature didn't match the expected result.
     ///
     /// This could be the result of data corruption or malicious tampering.
@@ -43,6 +45,7 @@ impl Display for Error {
                 found,
             )
             }
+            Error::WrongKey => f.write_str("public key does not belong to the private key"),
             Error::BadSignature => f.write_str("signature verification failed"),
             Error::BadPassword => f.write_str("password was empty or incorrect for key"),
         }

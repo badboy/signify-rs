@@ -140,6 +140,9 @@ impl Codeable for PrivateKey {
         buf.read_exact(&mut keynum)?;
         buf.read_exact(&mut complete_key[..])?;
 
+        // sanity check the keypair wasn't corrupted, mostly if it was unencrypted.
+        PrivateKey::verify_keypair(&complete_key)?;
+
         Ok(Self {
             public_key_alg,
             kdf_alg,
@@ -230,6 +233,7 @@ fn read_base64_contents(encoded: &str) -> Result<(Vec<u8>, u64), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NewKeyOpts;
     use alloc::string::String;
 
     #[test]
@@ -251,15 +255,8 @@ mod tests {
 
     #[test]
     fn private_key_codeable() {
-        let key = PrivateKey {
-            keynum: KeyNumber::new([3u8; KeyNumber::LEN]),
-            public_key_alg: PKGALG,
-            kdf_alg: crate::consts::KDFALG,
-            kdf_rounds: crate::consts::DEFAULT_KDF_ROUNDS,
-            salt: [5u8; 16],
-            checksum: [3u8; 8],
-            complete_key: Zeroizing::new([7u8; FULL_KEY_LEN]),
-        };
+        let mut rng = rand_core::OsRng;
+        let key = PrivateKey::generate(&mut rng, NewKeyOpts::NoEncryption).unwrap();
 
         let bytes = key.as_bytes();
         let deserialized = PrivateKey::from_bytes(&bytes).unwrap();
