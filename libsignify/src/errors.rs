@@ -5,7 +5,7 @@ use core::fmt::{self, Display};
 extern crate std;
 
 /// The error type which is returned when some `signify` operation fails.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Not enough data was found to parse a structure.
     InsufficentData,
@@ -57,7 +57,7 @@ impl std::error::Error for Error {}
 
 /// The error that is returned when a file's contents didn't adhere
 /// to the `signify` file container format.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FormatError {
     /// A comment line exceeded the maximum length or a data line was empty.
     LineLength,

@@ -73,7 +73,7 @@ struct UnencryptedKey(Zeroizing<[u8; FULL_KEY_LEN]>);
 ///
 /// You will need this if you want to create signatures.
 #[derive(Clone)]
-#[cfg_attr(test, derive(Debug, PartialEq))] // Makes the encoding tests nicer.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))] // Makes the encoding tests nicer.
 pub struct PrivateKey {
     pub(crate) public_key_alg: [u8; 2],
     pub(crate) kdf_alg: [u8; 2],
