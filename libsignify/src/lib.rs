@@ -45,8 +45,12 @@ use ed25519_dalek::{Signer as _, Verifier as _};
 impl PrivateKey {
     /// Signs a message with this secret key and returns the signature.
     pub fn sign(&self, msg: &[u8]) -> Signature {
-        // This `unwrap` is erased in release mode.
-        let keypair = ed25519_dalek::Keypair::from_bytes(self.complete_key.as_ref()).unwrap();
+        // This panics because signing is otherwise infallible if the key is valid.
+        //
+        // All constructors of `PrivateKey` return a valid one, so this is better then forcing
+        // a caller to handle an impossible error.
+        let keypair = PrivateKey::into_keypair(&self.complete_key)
+            .expect("invalid private keypair used for signing");
         let sig = keypair.sign(msg).to_bytes();
         Signature::new(self.keynum, sig)
     }
