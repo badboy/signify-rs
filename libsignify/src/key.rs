@@ -119,7 +119,7 @@ impl PrivateKey {
         } = &derivation_info
         {
             let kdf_rounds = *kdf_rounds;
-            Self::inner_kdf_mix(&mut complete_key.0[..32], kdf_rounds, &salt, passphrase)?;
+            Self::inner_kdf_mix(&mut complete_key.0[..], kdf_rounds, &salt, passphrase)?;
             kdf_rounds
         } else {
             0
@@ -146,7 +146,7 @@ impl PrivateKey {
         let mut encrypted_key = self.complete_key.clone(); // Cheap :)
 
         match Self::inner_kdf_mix(
-            &mut encrypted_key[..32],
+            &mut encrypted_key[..],
             self.kdf_rounds,
             &self.salt,
             passphrase,
