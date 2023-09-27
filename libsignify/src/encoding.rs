@@ -55,7 +55,7 @@ pub trait Codeable: Sized + Sealed {
         file_bytes.extend_from_slice(comment.as_bytes());
         file_bytes.push(b'\n');
 
-        let out = base64::encode(&bytes);
+        let out = base64::encode(bytes);
         file_bytes.extend_from_slice(out.as_bytes());
         file_bytes.push(b'\n');
 

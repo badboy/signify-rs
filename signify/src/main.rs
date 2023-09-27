@@ -124,7 +124,7 @@ fn verify(
         None => add_extension(msg_path, "sig"),
     };
 
-    let mut sig_data = BufReader::new(File::open(&signature_path)?);
+    let mut sig_data = BufReader::new(File::open(signature_path)?);
 
     let (signature, bytes_read): (Signature, u64) = read_base64_file(&mut sig_data)?;
 
@@ -162,7 +162,7 @@ fn sign(
         secret_key.decrypt_with_password(&passphrase)?;
     }
 
-    let mut msg_file = File::open(&msg_path)?;
+    let mut msg_file = File::open(msg_path)?;
     let mut msg = vec![];
     msg_file.read_to_end(&mut msg)?;
 
@@ -178,7 +178,7 @@ fn sign(
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&signature_path)?;
+        .open(signature_path)?;
 
     write_base64_file(&mut file, sig_comment, &sig)?;
 
