@@ -141,7 +141,7 @@ impl Codeable for PrivateKey {
         buf.read_exact(&mut complete_key[..])?;
 
         // sanity check the keypair wasn't corrupted, mostly if it was unencrypted.
-        PrivateKey::verify_keypair(&complete_key)?;
+        PrivateKey::from_key_bytes(&complete_key).map(drop)?;
 
         Ok(Self {
             public_key_alg,

@@ -3,8 +3,8 @@ use crate::errors::Error;
 
 use alloc::string::String;
 use core::convert::TryInto;
-use ed25519_dalek::{Digest, Sha512};
 use rand_core::{CryptoRng, RngCore};
+use sha2::{Digest, Sha512};
 use zeroize::{Zeroize, Zeroizing};
 
 /// The public half of a keypair.
@@ -96,17 +96,9 @@ impl PrivateKey {
     ) -> Result<Self, Error> {
         let keynum = KeyNumber::generate(rng);
 
-        let key_pair = ed25519_dalek::Keypair::generate(rng);
+        let key_pair = ed25519_dalek::SigningKey::generate(rng);
 
-        let mut complete_key = {
-            let skey = Zeroizing::new(key_pair.secret.to_bytes());
-            let pkey = key_pair.public.to_bytes();
-
-            let mut complete_key = Zeroizing::new([0u8; FULL_KEY_LEN]);
-            complete_key[..32].copy_from_slice(skey.as_ref());
-            complete_key[32..].copy_from_slice(&pkey);
-            UnencryptedKey(complete_key)
-        };
+        let mut complete_key = UnencryptedKey(Zeroizing::new(key_pair.to_keypair_bytes()));
 
         let checksum = Self::calculate_checksum(&complete_key);
 
@@ -162,8 +154,9 @@ impl PrivateKey {
                     return Err(Error::BadPassword);
                 }
 
-                PrivateKey::verify_keypair(&decrypted_key.0)?;
                 // Confirmed the decryption worked and the keys are matching.
+                PrivateKey::from_key_bytes(&decrypted_key.0).map(drop)?;
+
                 self.complete_key = decrypted_key.0;
 
                 Ok(())
@@ -172,21 +165,14 @@ impl PrivateKey {
         }
     }
 
-    pub(crate) fn into_keypair(
+    /// Creates a well-typed signing keypair from raw bytes.
+    ///
+    /// This also validates the provided public/verifying key matches the
+    /// private/signing key.
+    pub(crate) fn from_key_bytes(
         complete_key: &[u8; FULL_KEY_LEN],
-    ) -> Result<ed25519_dalek::Keypair, Error> {
-        // If the public key fails to decompress, it for sure isn't the correctly associated public key.
-        ed25519_dalek::Keypair::from_bytes(complete_key).map_err(|_| Error::WrongKey)
-    }
-
-    pub(crate) fn verify_keypair(keypair_bytes: &[u8; FULL_KEY_LEN]) -> Result<(), Error> {
-        let keypair = PrivateKey::into_keypair(keypair_bytes)?;
-        let real_public: ed25519_dalek::PublicKey = (&keypair.secret).into();
-        if real_public == keypair.public {
-            Ok(())
-        } else {
-            Err(Error::WrongKey)
-        }
+    ) -> Result<ed25519_dalek::SigningKey, Error> {
+        ed25519_dalek::SigningKey::from_keypair_bytes(complete_key).map_err(|_| Error::WrongKey)
     }
 
     fn calculate_checksum(complete_key: &UnencryptedKey) -> [u8; 8] {
@@ -206,10 +192,17 @@ impl PrivateKey {
             return Ok(());
         }
 
-        let mut xorkey = [0; FULL_KEY_LEN];
+        let mut xorkey = Zeroizing::new([0; FULL_KEY_LEN]);
+        let mut workspace = Zeroizing::new([0; FULL_KEY_LEN]);
 
-        bcrypt_pbkdf::bcrypt_pbkdf(passphrase, salt, rounds, &mut xorkey)
-            .map_err(|_| Error::BadPassword)?;
+        bcrypt_pbkdf::bcrypt_pbkdf_with_memory(
+            passphrase,
+            salt,
+            rounds,
+            xorkey.as_mut_slice(),
+            workspace.as_mut_slice(),
+        )
+        .map_err(|_| Error::BadPassword)?;
 
         for (prv, xor) in secret_key.iter_mut().zip(xorkey.iter()) {
             *prv ^= xor;

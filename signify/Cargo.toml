@@ -19,6 +19,6 @@ doc = false
 
 [dependencies]
 clap = { version = "3.0.0", default-features = false, features = ["cargo", "derive", "std"] }
-rand_core = { version = "0.5", features = ["getrandom"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
 rpassword = { version = "7", default-features = false }
 libsignify = { path = "../libsignify", version = "0.5.0", features = ["std"] }
