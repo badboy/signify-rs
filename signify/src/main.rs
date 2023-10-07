@@ -9,7 +9,7 @@ use libsignify::{
     consts::DEFAULT_KDF_ROUNDS, Codeable, NewKeyOpts, PrivateKey, PublicKey, Signature,
 };
 
-use clap::{IntoApp, Parser};
+use clap::{CommandFactory, Parser};
 
 #[derive(Parser)]
 #[clap(
@@ -30,24 +30,24 @@ struct Args {
     #[clap(short = 'V')]
     verify: bool,
     /// Public key produced by -G, and used by -V to check a signature
-    #[clap(short, parse(from_os_str))]
+    #[clap(short, value_parser)]
     pubkey: Option<PathBuf>,
     /// Secret (private) key produced by -G, and used by -S to sign a message
-    #[clap(short, parse(from_os_str))]
+    #[clap(short, value_parser)]
     seckey: Option<PathBuf>,
     /// Do not ask for a passphrase during key generation. Otherwise, signify
     /// will prompt the user for a passphrase to protect the secret key
     #[clap(short = 'n')]
     skip_key_encryption: bool,
     /// The file containing the message to create a signature over or to the one to verify with an existing signature
-    #[clap(short, parse(from_os_str))]
+    #[clap(short, value_parser)]
     message_path: Option<PathBuf>,
     /// When signing, embed the message after the signature. When verifying,
     /// extract the message from the signature
     #[clap(short)]
     embed_message: bool,
     /// The signature file to create or verify. The default is <message>.sig
-    #[clap(short = 'x', parse(from_os_str))]
+    #[clap(short = 'x', value_parser)]
     signature_path: Option<PathBuf>,
     /// Specify the comment to be added during key generation
     #[clap(short)]
@@ -319,5 +319,5 @@ fn main() {
     }
 
     // No command specified.
-    println!("{}", Args::into_app().render_usage());
+    println!("{}", <Args as CommandFactory>::command().render_usage());
 }
