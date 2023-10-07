@@ -141,8 +141,10 @@ impl Codeable for PrivateKey {
         buf.read_exact(&mut keynum)?;
         buf.read_exact(&mut complete_key[..])?;
 
-        // sanity check the keypair wasn't corrupted, mostly if it was unencrypted.
-        PrivateKey::from_key_bytes(&complete_key).map(drop)?;
+        // Sanity check the keypair wasn't corrupted, only if it was unencrypted.
+        if kdf_rounds == 0 {
+            PrivateKey::from_key_bytes(&complete_key).map(drop)?;
+        }
 
         Ok(Self {
             public_key_alg,
@@ -258,6 +260,22 @@ mod tests {
     #[test]
     fn private_key_codeable() {
         let mut rng = rand_core::OsRng;
+
+        {
+            let key = PrivateKey::generate(
+                &mut rng,
+                NewKeyOpts::Encrypted {
+                    passphrase: String::from("supersecure"),
+                    kdf_rounds: 16,
+                },
+            )
+            .unwrap();
+
+            let bytes = key.as_bytes();
+            let deserialized = PrivateKey::from_bytes(&bytes).unwrap();
+            assert_eq!(deserialized.complete_key, key.complete_key);
+        }
+
         let key = PrivateKey::generate(&mut rng, NewKeyOpts::NoEncryption).unwrap();
 
         let bytes = key.as_bytes();
