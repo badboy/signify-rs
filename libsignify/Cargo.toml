@@ -18,7 +18,7 @@ std = []
 
 [dependencies]
 bcrypt-pbkdf = { version = "0.10", default-features = false }
-base64 = { version = "0.13", default-features = false, features = ["alloc"] }
+base64ct = { version = "1.6", default-features = false, features = ["alloc"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc", "fast", "rand_core"] }
 rand_core = { version = "0.6", default-features = false }
 sha2 = { version = "0.10", default-features = false }
