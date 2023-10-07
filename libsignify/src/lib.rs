@@ -49,7 +49,7 @@ impl PrivateKey {
         //
         // All constructors of `PrivateKey` return a valid one, so this is better then forcing
         // a caller to handle an impossible error.
-        let keypair = PrivateKey::into_keypair(&self.complete_key)
+        let keypair = PrivateKey::from_key_bytes(&self.complete_key)
             .expect("invalid private keypair used for signing");
         let sig = keypair.sign(msg).to_bytes();
         Signature::new(self.keynum, sig)
@@ -79,11 +79,9 @@ impl PublicKey {
         // so the ed25519 math can still go wrong.
         // In that case all we need to communicate is that it was a bad signature.
 
-        let public_key =
-            ed25519_dalek::PublicKey::from_bytes(&self.key()).map_err(|_| Error::BadSignature)?;
-        let signature = ed25519_dalek::Signature::from_bytes(&signature.signature())
+        let public_key = ed25519_dalek::VerifyingKey::from_bytes(&self.key())
             .map_err(|_| Error::BadSignature)?;
-
+        let signature = ed25519_dalek::Signature::from_bytes(&signature.signature());
         public_key
             .verify(msg, &signature)
             .map_err(|_| Error::BadSignature)
