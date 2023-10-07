@@ -4,6 +4,7 @@ use crate::consts::{
 use crate::errors::{Error, FormatError};
 use crate::{KeyNumber, PrivateKey, PublicKey, Signature};
 use alloc::vec::Vec;
+use base64ct::Encoding;
 use zeroize::Zeroizing;
 
 /// A structure that can be converted to and from bytes and the `signify` file format.
@@ -55,7 +56,7 @@ pub trait Codeable: Sized + Sealed {
         file_bytes.extend_from_slice(comment.as_bytes());
         file_bytes.push(b'\n');
 
-        let out = base64::encode(bytes);
+        let out = base64ct::Base64::encode_string(&bytes);
         file_bytes.extend_from_slice(out.as_bytes());
         file_bytes.push(b'\n');
 
@@ -217,7 +218,8 @@ fn read_base64_contents(encoded: &str) -> Result<(Vec<u8>, u64), Error> {
 
     let base64_line = lines.next().ok_or(FormatError::MissingNewline)?;
 
-    let data = base64::decode(base64_line.trim_end()).map_err(|_| FormatError::Base64)?;
+    let data =
+        base64ct::Base64::decode_vec(base64_line.trim_end()).map_err(|_| FormatError::Base64)?;
 
     match data.get(0..2) {
         // Make sure the specified algorithm matches what we support
