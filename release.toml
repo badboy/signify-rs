@@ -1,5 +1,3 @@
-consolidate-commits = true
-consolidate-pushes = true
 shared-version = true
 tag-name = "v{{version}}"
 pre-release-replacements = [
